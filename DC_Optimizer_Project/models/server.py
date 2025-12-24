@@ -1,50 +1,66 @@
+# src/models/server.py
 import numpy as np
-import config
+from typing import Dict, List
+from src.models.cooling import CoolingSystem
 
 class Server:
-    def __init__(self, server_id, cooling_mode="AIR"):
+    def __init__(self, server_id: int, config):
         self.id = server_id
-        self.cpu_load = 0.0      # 0.0 a 1.0
-        self.temperature = 25.0  # Temperatura inicial (Ambient)
-        self.power_draw = config.P_IDLE
+        self.config = config
+        self.temperature = config.physics.ambient_temp
+        self.cpu_load = 0.0
+        self.power_draw = config.physics.p_idle
+        self.cooling_system = CoolingSystem(mode="AIR", config=config.cooling)
+        self.temp_history: List[float] = [self.temperature]
+        self.power_history: List[float] = [self.power_draw]
+    
+    def update_physics(self, cpu_load: float, cooling_action: float, dt: float = 1.0) -> Dict:
+        cpu_load = np.clip(cpu_load, 0.0, 1.0)
+        cooling_action = np.clip(cooling_action, 0.0, 1.0)
         
-        # Cada servidor tiene su sistema de refrigeración asignado
-        self.cooling_system = config.CoolingSystem(mode=cooling_mode)
-
-    def update_physics(self, cpu_load_input, cooling_action, dt=1):
-        """
-        Paso de simulación física (1 segundo).
-        cpu_load_input: Carga de trabajo actual (0-1)
-        cooling_action: Velocidad del ventilador/bomba decidida por la IA (0-1)
-        """
-        self.cpu_load = cpu_load_input
-        
-        # 1. CALCULAR GENERACIÓN DE CALOR (Modelo Jin et al. 2020)
-        # P(u) = P_idle + (P_max - P_idle) * (2u - u^r)
-        u = self.cpu_load
-        r = config.R_COEFF
+        u = cpu_load
+        r = self.config.physics.r_coeff
         dynamic_factor = (2 * u) - (u ** r)
-        # Potencia eléctrica consumida por el chip = Calor generado (Joules/sec)
-        self.power_draw = config.P_IDLE + (config.P_MAX - config.P_IDLE) * dynamic_factor
-        heat_generated = self.power_draw 
-
-        # 2. CALCULAR EXTRACCIÓN DE CALOR
-        # Cuánto calor se lleva el sistema de refrigeración
-        heat_removed = self.cooling_system.get_cooling_capacity(cooling_action)
         
-        # Consumo energético del ventilador/bomba (para GreenDC)
-        cooling_energy_cost = self.cooling_system.get_power_consumption(cooling_action)
-
-        # 3. ACTUALIZAR TEMPERATURA (Inercia Térmica)
-        # T_new = T_old + (Energía_Neta / Masa_Térmica) * tiempo
+        p_idle = self.config.physics.p_idle
+        p_max = self.config.physics.p_max
+        self.power_draw = p_idle + (p_max - p_idle) * dynamic_factor
+        heat_generated = self.power_draw
+        
+        heat_removed = self.cooling_system.get_cooling_capacity(cooling_action)
+        cooling_cost = self.cooling_system.get_power_consumption(cooling_action)
+        
         net_heat = heat_generated - heat_removed
-        delta_temp = (net_heat * dt) / config.SERVER_THERMAL_MASS
+        delta_temp = (net_heat * dt) / self.config.physics.server_thermal_mass
+        
+        max_delta = self.config.physics.max_temp_change_per_second
+        delta_temp = np.clip(delta_temp, -max_delta, max_delta)
         
         self.temperature += delta_temp
-
-        # Retornamos el estado para que la IA lo vea
+        
+        self.temperature = np.clip(
+            self.temperature,
+            self.config.physics.min_temp,
+            self.config.physics.max_temp
+        )
+        
+        self.temp_history.append(self.temperature)
+        self.power_history.append(self.power_draw + cooling_cost)
+        
         return {
             "temp": self.temperature,
             "it_power": self.power_draw,
-            "cooling_power": cooling_energy_cost
+            "cooling_power": cooling_cost,
+            "heat_generated": heat_generated,
+            "heat_removed": heat_removed,
         }
+    
+    def reset(self) -> None:
+        self.temperature = self.config.physics.ambient_temp
+        self.cpu_load = 0.0
+        self.power_draw = self.config.physics.p_idle
+        self.temp_history = [self.temperature]
+        self.power_history = [self.power_draw]
+    
+    def __repr__(self) -> str:
+        return f"Server(id={self.id}, T={self.temperature:.1f}ºC, P={self.power_draw:.0f}W)"
