@@ -1,43 +1,59 @@
+# src/models/cooling.py
 import numpy as np
+from typing import Tuple, Optional
 
 class CoolingSystem:
-    def __init__(self, mode="AIR"):
-        self.mode = mode # "AIR", "LIQUID", "HYBRID"
-
-    def get_power_consumption(self, flow_rate):
-        """
-        Calcula cuánta electricidad gastamos para enfriar.
-        flow_rate: % de velocidad (0.0 a 1.0)
-        """
-        power_draw = 0.0
-
+    def __init__(self, mode: str = "AIR", config=None):
+        self.mode = mode
+        self.config = config
+        if self.config is None:
+            from src.config import CoolingConfig
+            self.config = CoolingConfig()
+    
+    def get_power_consumption(self, flow_rate: float) -> float:
+        flow_rate = np.clip(flow_rate, 0.0, 1.0)
+        
         if self.mode == "AIR":
-            # LEY DEL VENTILADOR: Potencia proprocional al CUBOR de la velocidad
-            # Supongamos un ventilador de servidor potente gasta 50W al 100%
-            MAX_FAN_POWER = 50.0 
-            power_draw = MAX_FAN_POWER * (flow_rate ** 3)
-
+            power = self.config.max_fan_power * (flow_rate ** 3)
+            power += 0.1 * self.config.max_fan_power * (1 if flow_rate > 0 else 0)
+        
         elif self.mode == "LIQUID":
-            # LEY DE LA BOMBA: Proporcional al cuadrado (o lineal según diseño)
-            # Más el consumo base de la CDU
-            BASE_PUMP_POWER = 10.0
-            MAX_PUMP_POWER = 30.0
+            power = self.config.base_pump_power
             if flow_rate > 0:
-                power_draw = BASE_PUMP_POWER + (MAX_PUMP_POWER * (flow_rate ** 2))
+                efficiency_factor = 0.8 + 0.4 * np.sin(flow_rate * np.pi / 2)
+                power += self.config.max_pump_power * (flow_rate ** 2) * efficiency_factor
         
         elif self.mode == "HYBRID":
-            # Mezcla: Aire al 30% + Líquido al 70% (simplificado)
-            power_draw = (50.0 * (0.3 * flow_rate)**3) + (30.0 * (0.7 * flow_rate))
-
-        return power_draw
-
-    def get_cooling_capacity(self, flow_rate):
-        """
-        Devuelve cuántos Watts de calor somos capaces de extraer (J/s)
-        """
-        # Aquí defines la superioridad del agua
+            air_flow = 0.3 * flow_rate
+            liquid_flow = 0.7 * flow_rate
+            air_power = self.config.max_fan_power * (air_flow ** 3)
+            liquid_power = self.config.base_pump_power
+            if liquid_flow > 0:
+                liquid_power += self.config.max_pump_power * (liquid_flow ** 2)
+            power = air_power + liquid_power
+        
+        else:
+            raise ValueError(f"Unknown cooling mode: {self.mode}")
+        
+        return float(power)
+    
+    def get_cooling_capacity(self, flow_rate: float) -> float:
+        flow_rate = np.clip(flow_rate, 0.0, 1.0)
+        
         if self.mode == "AIR":
-            return flow_rate * 1000 # Aire saca hasta 1000W (aprox)
+            passive = self.config.natural_convection
+            active = flow_rate * self.config.air_cooling_capacity
+            return passive + active
+        
         elif self.mode == "LIQUID":
-            return flow_rate * 5000 # Agua saca hasta 5000W (mucho más)
-        return 0
+            return flow_rate * self.config.liquid_cooling_capacity
+        
+        elif self.mode == "HYBRID":
+            air_cooling = 0.3 * flow_rate * self.config.air_cooling_capacity
+            liquid_cooling = 0.7 * flow_rate * self.config.liquid_cooling_capacity
+            return air_cooling + liquid_cooling
+        
+        return 0.0
+    
+    def __repr__(self) -> str:
+        return f"CoolingSystem(mode={self.mode}, max_power={self.config.max_fan_power}W)"
