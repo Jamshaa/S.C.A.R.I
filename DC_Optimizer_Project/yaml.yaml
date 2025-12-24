@@ -1,0 +1,48 @@
+physics:
+  ambient_temp: 22.0
+  server_thermal_mass: 15000
+  p_idle: 200.0
+  p_max: 800.0
+  r_coeff: 0.5
+  max_temp: 95.0
+  min_temp: 22.0
+  max_temp_change_per_second: 5.0
+
+cooling:
+  max_fan_power: 50.0
+  max_pump_power: 30.0
+  base_pump_power: 10.0
+  air_cooling_capacity: 3000.0
+  liquid_cooling_capacity: 12000.0
+  natural_convection: 50.0
+
+reward:
+  energy_coefficient: 15.0
+  safe_threshold: 70.0
+  critical_limit: 90.0
+  thermal_penalty_coefficient: 10.0
+  emergency_penalty: 100.0
+  energy_efficiency_bonus: 2.0
+
+training:
+  timesteps: 500000
+  learning_rate: 0.0001
+  n_steps: 4096
+  batch_size: 128
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.001
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  n_epochs: 10
+  clip_range: 0.2
+  normalize_advantage: true
+  normalize_observation: true
+
+environment:
+  num_racks: 1
+  servers_per_rack: 10
+  max_load_change_per_step: 0.05
+  min_initial_load: 0.1
+  max_initial_load: 0.3
+  episode_length: 1000
