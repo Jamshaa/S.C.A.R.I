@@ -1,16 +1,38 @@
 # src/models/cooling.py
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CoolingSystem:
-    def __init__(self, mode: str = "AIR", config=None):
+    """Manages cooling physics for servers and racks."""
+    
+    def __init__(self, mode: str = "AIR", config: Any = None):
+        """
+        Initialize the cooling system.
+        
+        Args:
+            mode: Cooling mode ("AIR", "LIQUID", or "HYBRID").
+            config: Cooling configuration object.
+        """
         self.mode = mode
         self.config = config
         if self.config is None:
             from src.config import CoolingConfig
             self.config = CoolingConfig()
+            logger.debug(f"CoolingSystem initialized with default {self.mode} config")
     
     def get_power_consumption(self, flow_rate: float) -> float:
+        """
+        Calculate power consumption based on flow rate.
+        
+        Args:
+            flow_rate: Normalized flow rate (0.0 to 1.0).
+            
+        Returns:
+            Power consumption in Watts.
+        """
         flow_rate = np.clip(flow_rate, 0.0, 1.0)
         
         if self.mode == "AIR":
@@ -33,11 +55,21 @@ class CoolingSystem:
             power = air_power + liquid_power
         
         else:
+            logger.error(f"Unknown cooling mode: {self.mode}")
             raise ValueError(f"Unknown cooling mode: {self.mode}")
         
         return float(power)
     
     def get_cooling_capacity(self, flow_rate: float) -> float:
+        """
+        Calculate cooling capacity based on flow rate.
+        
+        Args:
+            flow_rate: Normalized flow rate (0.0 to 1.0).
+            
+        Returns:
+            Cooling capacity in Watts.
+        """
         flow_rate = np.clip(flow_rate, 0.0, 1.0)
         
         if self.mode == "AIR":

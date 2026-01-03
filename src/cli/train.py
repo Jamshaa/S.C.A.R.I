@@ -1,13 +1,16 @@
 # src/cli/train.py
 import click
 import os
+import logging
 from pathlib import Path
+import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 import numpy as np
 from src.config import Config
-from src.envs.datacenter_env import DataCenterEnv
+
+logger = logging.getLogger(__name__)
 
 @click.command()
 @click.option('--config', default='configs/default.yaml', help='Config file path')
@@ -16,8 +19,8 @@ from src.envs.datacenter_env import DataCenterEnv
 @click.option('--log-dir', default='logs', help='Log directory')
 @click.option('--device', default='auto', help='Device: cpu or cuda')
 @click.option('--seed', default=42, type=int, help='Random seed')
-def train(config, timesteps, model_dir, log_dir, device, seed):
-    """Train S.C.A.R.I. agent using PPO"""
+def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str, seed: int) -> None:
+    """Train S.C.A.R.I. agent using Proximal Policy Optimization (PPO)."""
     
     print("="*70)
     print("S.C.A.R.I. v2.0 - Training Script")
@@ -25,8 +28,13 @@ def train(config, timesteps, model_dir, log_dir, device, seed):
     
     np.random.seed(seed)
     
+    # Deferred import to avoid circular dependencies or heavy initialization if only using CLI help
+    from src.envs.datacenter_env import DataCenterEnv
+    
     Path(model_dir).mkdir(parents=True, exist_ok=True)
     Path(log_dir).mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Training started. Seed: {seed}, Device: {device}")
     
     print(f"\n📂 Directories created:")
     print(f"   Model dir: {model_dir}")
@@ -35,28 +43,32 @@ def train(config, timesteps, model_dir, log_dir, device, seed):
     print(f"\n⚙️  Loading configuration from: {config}")
     try:
         cfg = Config.from_yaml(config)
-    except FileNotFoundError:
-        print(f"⚠️  Config file not found: {config}")
-        print(f"   Using DEFAULT_CONFIG instead")
+    except Exception:
+        print(f"⚠️  Config file not found or invalid at {config}. Using DEFAULT_CONFIG.")
         from src.config import DEFAULT_CONFIG
         cfg = DEFAULT_CONFIG
     
     print(f"   - Physics: ambient={cfg.physics.ambient_temp}ºC, max_temp={cfg.physics.max_temp}ºC")
     print(f"   - Training: timesteps={cfg.training.timesteps}, lr={cfg.training.learning_rate}")
-    print(f"   - Reward: energy_coeff={cfg.reward.energy_coefficient}, safe_threshold={cfg.reward.safe_threshold}ºC")
     
-    print(f"\n🌍 Creating environment...")
-    env = DataCenterEnv(cfg)
-    env = Monitor(env, log_dir)
+    print(f"\n🌍 Creating and normalizing environment...")
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+    
+    def make_env():
+        env = DataCenterEnv(cfg)
+        env = Monitor(env, log_dir)
+        return env
+        
+    env = DummyVecEnv([make_env])
+    env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.)
+    
     print(f"   - Observation space: {env.observation_space}")
     print(f"   - Action space: {env.action_space}")
-    print(f"   - Servers: {env.num_servers}")
     
     print(f"\n🤖 Initializing PPO agent...")
-    
     policy_kwargs = {
         'net_arch': [256, 256],
-        'activation_fn': 'relu',
+        'activation_fn': nn.ReLU,
     }
     
     model = PPO(
@@ -77,21 +89,16 @@ def train(config, timesteps, model_dir, log_dir, device, seed):
     )
     
     print(f"   ✅ PPO agent created successfully")
-    print(f"   - Policy: MlpPolicy (256-256)")
-    print(f"   - Device: {device}")
     
-    print(f"\n📊 Setting up callbacks...")
     checkpoint_callback = CheckpointCallback(
         save_freq=50000,
         save_path=model_dir,
         name_prefix='scari',
         save_replay_buffer=True,
     )
-    print(f"   ✅ Checkpoint callback created (save every 50k steps)")
     
     print(f"\n🚀 Starting training...")
     print(f"   Total timesteps: {timesteps:,}")
-    print(f"   Expected duration: ~{timesteps/60000:.1f} minutes on GPU")
     print(f"   " + "="*66)
     
     try:
@@ -103,11 +110,18 @@ def train(config, timesteps, model_dir, log_dir, device, seed):
         )
     except KeyboardInterrupt:
         print("\n\n⚠️  Training interrupted by user")
+    except Exception as e:
+        logger.error(f"Training failed: {e}")
+        raise
     
-    print(f"\n\n💾 Saving final model...")
+    print(f"\n\n💾 Saving final model and stats...")
     model_path = os.path.join(model_dir, 'scari_v2_final.zip')
     model.save(model_path)
+    
+    stats_path = os.path.join(model_dir, 'vec_normalize.pkl')
+    env.save(stats_path)
     print(f"   ✅ Model saved: {model_path}")
+    print(f"   ✅ Normalization stats saved: {stats_path}")
     
     config_path = os.path.join(model_dir, 'config.json')
     cfg.to_json(config_path)

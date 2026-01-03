@@ -3,9 +3,18 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 import yaml
 import json
+import logging
+
+# Configure basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PhysicsConfig:
+    """Configuration for server and datacenter physics."""
     ambient_temp: float = 22.0
     server_thermal_mass: float = 15000
     p_idle: float = 200.0
@@ -17,6 +26,7 @@ class PhysicsConfig:
 
 @dataclass
 class CoolingConfig:
+    """Configuration for the cooling system parameters."""
     max_fan_power: float = 50.0
     max_pump_power: float = 30.0
     base_pump_power: float = 10.0
@@ -26,6 +36,7 @@ class CoolingConfig:
 
 @dataclass
 class RewardConfig:
+    """Configuration for reward calculation parameters."""
     energy_coefficient: float = 15.0
     safe_threshold: float = 70.0
     critical_limit: float = 90.0
@@ -35,6 +46,7 @@ class RewardConfig:
 
 @dataclass
 class TrainingConfig:
+    """Configuration for RL training parameters."""
     timesteps: int = 500000
     learning_rate: float = 0.0001
     n_steps: int = 4096
@@ -51,6 +63,7 @@ class TrainingConfig:
 
 @dataclass
 class EnvironmentConfig:
+    """Configuration for the datacenter environment structure."""
     num_racks: int = 1
     servers_per_rack: int = 10
     max_load_change_per_step: float = 0.05
@@ -60,6 +73,7 @@ class EnvironmentConfig:
 
 @dataclass
 class Config:
+    """Main configuration container for S.C.A.R.I."""
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     cooling: CoolingConfig = field(default_factory=CoolingConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
@@ -68,17 +82,23 @@ class Config:
     
     @classmethod
     def from_yaml(cls, path: str) -> 'Config':
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-        return cls(
-            physics=PhysicsConfig(**data.get('physics', {})),
-            cooling=CoolingConfig(**data.get('cooling', {})),
-            reward=RewardConfig(**data.get('reward', {})),
-            training=TrainingConfig(**data.get('training', {})),
-            environment=EnvironmentConfig(**data.get('environment', {})),
-        )
+        """Load configuration from a YAML file."""
+        try:
+            with open(path, 'r') as f:
+                data = yaml.safe_load(f)
+            return cls(
+                physics=PhysicsConfig(**data.get('physics', {})),
+                cooling=CoolingConfig(**data.get('cooling', {})),
+                reward=RewardConfig(**data.get('reward', {})),
+                training=TrainingConfig(**data.get('training', {})),
+                environment=EnvironmentConfig(**data.get('environment', {})),
+            )
+        except Exception as e:
+            logger.error(f"Error loading config from {path}: {e}")
+            raise
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert configuration to a dictionary."""
         return {
             'physics': self.physics.__dict__,
             'cooling': self.cooling.__dict__,
@@ -88,8 +108,13 @@ class Config:
         }
     
     def to_json(self, path: str) -> None:
-        with open(path, 'w') as f:
-            json.dump(self.to_dict(), f, indent=2)
+        """Save configuration to a JSON file."""
+        try:
+            with open(path, 'w') as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving config to {path}: {e}")
+            raise
 
 DEFAULT_CONFIG = Config()
 AGGRESSIVE_CONFIG = Config(
