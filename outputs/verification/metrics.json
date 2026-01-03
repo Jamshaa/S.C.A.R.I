@@ -1,0 +1,32 @@
+{
+  "baseline": {
+    "total_power_consumption": 3709683.635844892,
+    "average_temperature": 29.400260431601644,
+    "max_temperature": 33.44129620124789,
+    "min_temperature": 22.015621479220666,
+    "std_temperature": 3.7683250278295444,
+    "safety_violations": 0,
+    "avg_fan_speed": 0.501711979168415,
+    "power_efficiency": 0.07257909103877702,
+    "thermal_stability": 0.7364193473463996,
+    "episode_reward": 1.7119792699813843,
+    "average_pue": 1.01440104156043,
+    "average_health": 0.9999407734767622,
+    "convergence_time": 0
+  },
+  "model": {
+    "total_power_consumption": 4600974.395806361,
+    "average_temperature": 38.58629307642769,
+    "max_temperature": 57.38909996881052,
+    "min_temperature": 22.017139650332002,
+    "std_temperature": 10.883833886948478,
+    "safety_violations": 0,
+    "avg_fan_speed": 0.5018877556031942,
+    "power_efficiency": 0.0,
+    "thermal_stability": 0.7873923985867503,
+    "episode_reward": 1.8877556324005127,
+    "average_pue": 1.0054483652442014,
+    "average_health": 0.999906925016086,
+    "convergence_time": 0
+  }
+}

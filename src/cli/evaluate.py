@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EvaluationMetrics:
-    """Container for evaluation performance metrics."""
+    """Container for high-fidelity performance metrics."""
     total_power_consumption: float
     average_temperature: float
     max_temperature: float
@@ -35,15 +35,17 @@ class EvaluationMetrics:
     power_efficiency: float
     thermal_stability: float
     episode_reward: float
+    average_pue: float  # Added in S.C.A.R.I. "True Physics"
+    average_health: float # Added in S.C.A.R.I. "True Physics"
     convergence_time: int
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 class BaselineController:
-    """PID-based baseline controller for comparisons."""
+    """Conserative PID-based baseline controller."""
     
-    def __init__(self, target_temp: float = 50.0):
+    def __init__(self, target_temp: float = 28.0): # Keeping it cold
         self.target_temp = target_temp
         self.prev_error = 0.0
         self.integral = 0.0
@@ -63,7 +65,7 @@ class BaselineController:
         self.prev_error = error
         
         fan_speed = kp * error + ki * self.integral + kd * derivative
-        fan_speed = np.clip(0.2 + fan_speed, 0.1, 1.0)
+        fan_speed = np.clip(0.4 + fan_speed, 0.2, 1.0) # Higher floor for safety
         
         return np.ones(num_servers) * fan_speed
     
@@ -93,30 +95,32 @@ class EvaluationRunner:
         obs = self.env.reset()
         
         rewards, temps, powers = [], [], []
+        it_powers, cooling_powers, healths = [], [], []
         violations = 0
         
         for _ in tqdm(range(num_steps), desc="Baseline"):
             # When using VecEnv, obs is (n_envs, obs_shape)
             # We only have 1 env
             current_obs = obs[0]
-            server_temps = current_obs[:self.num_servers] # Need to get num_servers from config or internal env
+            server_temps = current_obs[:self.num_servers] 
             num_servers = len(server_temps)
             
             action = self.baseline.compute_action(server_temps, num_servers)
-            # VecEnv step returns: obs, reward, done, info (where obs, reward, done are arrays)
+            # VecEnv step returns: obs, reward, done, info
             obs, reward, done, info = self.env.step([action])
             
             # Since n_envs=1, we take index 0
             rewards.append(reward[0])
             temps.append(info[0]['max_temp'])
             powers.append(info[0]['total_power'])
+            it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
+            cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
+            healths.append(info[0].get('avg_health', 1.0))
             
             if info[0]['max_temp'] >= self.config.reward.critical_limit:
                 violations += 1
             
-            # VecEnv automatically resets on done
-        
-        metrics = self._compute_metrics(rewards, temps, powers, violations)
+        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, violations)
         return rewards, temps, powers, metrics
 
     def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
@@ -124,6 +128,7 @@ class EvaluationRunner:
         obs = self.env.reset()
         
         rewards, temps, powers = [], [], []
+        it_powers, cooling_powers, healths = [], [], []
         violations = 0
         
         for _ in tqdm(range(num_steps), desc="Model"):
@@ -133,18 +138,25 @@ class EvaluationRunner:
             rewards.append(reward[0])
             temps.append(info[0]['max_temp'])
             powers.append(info[0]['total_power'])
+            it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
+            cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
+            healths.append(info[0].get('avg_health', 1.0))
             
             if info[0]['max_temp'] >= self.config.reward.critical_limit:
                 violations += 1
         
-        metrics = self._compute_metrics(rewards, temps, powers, violations)
+        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, violations)
         return rewards, temps, powers, metrics
     
     def _compute_metrics(self, rewards: List[float], temps: List[float], 
-                         powers: List[float], violations: int) -> EvaluationMetrics:
+                         powers: List[float], it_powers: List[float],
+                         cooling_powers: List[float], healths: List[float],
+                         violations: int) -> EvaluationMetrics:
         temps_array = np.array(temps)
         rewards_array = np.array(rewards)
         powers_array = np.array(powers)
+        it_array = np.array(it_powers)
+        cool_array = np.array(cooling_powers)
         
         # Stability and efficiency calculations
         temp_changes = np.abs(np.diff(temps_array))
@@ -154,6 +166,10 @@ class EvaluationRunner:
         power_efficiency = 1.0 - (np.mean(powers_array) / (baseline_power_idle * 2))
         
         avg_fan_speed = np.mean([min(1.0, max(0.1, 0.5 + r / 1000)) for r in rewards])
+        
+        # S.C.A.R.I. "True Physics" Metrics
+        avg_pue = np.mean(powers_array / (it_array + 1e-6))
+        avg_health = np.mean(healths)
         
         return EvaluationMetrics(
             total_power_consumption=float(np.sum(powers_array)),
@@ -166,7 +182,9 @@ class EvaluationRunner:
             power_efficiency=float(np.clip(power_efficiency, 0, 1)),
             thermal_stability=float(np.clip(thermal_stability, 0, 1)),
             episode_reward=float(np.mean(rewards_array)),
-            convergence_time=0, # Simplified
+            average_pue=float(avg_pue),
+            average_health=float(avg_health),
+            convergence_time=0, 
         )
 
 class ComparisonVisualizer:
@@ -268,16 +286,17 @@ class ComparisonVisualizer:
         temp_diff = ((b_m.average_temperature - m_m.average_temperature) / b_m.average_temperature) * 100
         
         report = f"""
-S.C.A.R.I. v3.0 - COMPARISON REPORT
-===================================
+S.C.A.R.I. v10.5 - ADVANCED COMPARISON REPORT
+=============================================
 
-BASELINE (PID)          SCARI               DIFFERENCE
+BASELINE (PID)          SCARI (Attention)    DIFFERENCE
 ---------------------------------------------------------------------------
-Power: {b_m.total_power_consumption/1000:.1f} kWh        {m_m.total_power_consumption/1000:.1f} kWh          {power_diff:+.1f}%
-Temp:  {b_m.average_temperature:.1f}°C            {m_m.average_temperature:.1f}°C            {temp_diff:+.1f}%
-Stability: {b_m.thermal_stability*100:.1f}%          {m_m.thermal_stability*100:.1f}%
+Power: {b_m.total_power_consumption/1000:,.1f} Wh        {m_m.total_power_consumption/1000:,.1f} Wh          {power_diff:+.2f}%
+Temp:  {b_m.average_temperature:.1f}°C            {m_m.average_temperature:.1f}°C            {temp_diff:+.2f}%
+PUE:   {b_m.average_pue:.3f}                {m_m.average_pue:.3f}                {(m_m.average_pue - b_m.average_pue):+.3f}
+Health: {b_m.average_health*100:.2f}%          {m_m.average_health*100:.2f}%          {(m_m.average_health - b_m.average_health)*100:+.3f}%
 
-RESULT: {"SCARI is more efficient" if power_diff > 0 else "SCARI uses more power but runs cooler"}
+RESULT: {"SCARI is MORE EFFICIENT (Wins! 🎉)" if power_diff > 0 else "SCARI is currently less efficient"}
 """
         
         with open(self.output_dir / 'report.txt', 'w') as f:

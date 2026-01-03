@@ -27,8 +27,8 @@ class PhysicsConfig:
 @dataclass
 class CoolingConfig:
     """Configuration for the cooling system parameters."""
-    max_fan_power: float = 50.0
-    max_pump_power: float = 30.0
+    max_fan_power: float = 500.0  # Ultra-high density fans for AI hardware
+    max_pump_power: float = 50.0
     base_pump_power: float = 10.0
     air_cooling_capacity: float = 3000.0
     liquid_cooling_capacity: float = 12000.0

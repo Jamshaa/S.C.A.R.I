@@ -66,13 +66,19 @@ def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str
     print(f"   - Action space: {env.action_space}")
     
     print(f"\n🤖 Initializing PPO agent...")
+    from src.models.attention_policy import AttentionPolicy
+    
     policy_kwargs = {
         'net_arch': [256, 256],
         'activation_fn': nn.ReLU,
     }
     
+    # Selection of policy (Attention is now default for v10.0 realism)
+    policy_type = 'Attention' 
+    
     model = PPO(
-        'MlpPolicy', env, verbose=1, tensorboard_log=log_dir,
+        AttentionPolicy if policy_type == 'Attention' else 'MlpPolicy',
+        env, verbose=1, tensorboard_log=log_dir,
         learning_rate=cfg.training.learning_rate,
         n_steps=cfg.training.n_steps,
         batch_size=cfg.training.batch_size,
@@ -83,7 +89,7 @@ def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str
         max_grad_norm=cfg.training.max_grad_norm,
         n_epochs=cfg.training.n_epochs,
         clip_range=cfg.training.clip_range,
-        policy_kwargs=policy_kwargs,
+        policy_kwargs=None if policy_type == 'Attention' else policy_kwargs,
         device=device,
         seed=seed,
     )

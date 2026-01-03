@@ -35,10 +35,10 @@ class DataCenterEnv(gym.Env):
         self.step_count = 0
         self.episode_count = 0
         
-        # State: [Temperatures..., CPU Loads...]
+        # State: [Temperatures..., CPU Loads..., Health...]
         self.observation_space = spaces.Box(
             low=0.0, high=100.0,
-            shape=(2 * self.num_servers,),
+            shape=(3 * self.num_servers,),
             dtype=np.float32
         )
         
@@ -128,70 +128,73 @@ class DataCenterEnv(gym.Env):
         
         info = {
             "total_power": self.rack.get_total_power(),
+            "it_power": self.rack.get_it_raw_power(),
+            "cooling_power": self.rack.get_cooling_raw_power(),
             "max_temp": float(max_temp),
             "avg_temp": self.rack.get_avg_temperature(),
+            "avg_health": self.rack.get_avg_health(),
             "avg_reward": float(np.mean(self.episode_rewards[-10:])) if self.episode_rewards else 0.0,
         }
         
         return self._get_obs(), float(reward), terminated, truncated, info
     
     def _get_obs(self) -> np.ndarray:
-        """Assemble the current state observation."""
+        """
+        Assemble the current state observation.
+        S.C.A.R.I. "True Physics" - Includes Health and Inlet Offsets.
+        """
         temps = self.rack.get_temperatures()
-        return np.concatenate([temps, self.current_loads]).astype(np.float32)
+        loads = self.current_loads
+        health = np.array([s.health for s in self.rack.servers])
+        
+        # Flattened observation: [Temps..., Loads..., Health...]
+        # We need to update the observation space definition in __init__
+        return np.concatenate([temps, loads, health]).astype(np.float32)
     
     def _calculate_reward(self, stats: List[Dict[str, float]], actions: np.ndarray) -> float:
         """
-        S.C.A.R.I. v5.0 - Power-First Reward Function
+        S.C.A.R.I. "Thermal Intelligence" - Optimized Reward v10.2
         
-        GOAL: Beat the PID baseline by using LESS power while staying safe.
-        
-        The PID baseline uses avg_fan_speed = 0.52 and total_power = 19M Wh.
-        We need to MINIMIZE fan usage while maintaining safe temperatures.
+        GOAL: Minimize TOTAL Power (IT + Cooling) while maximizing safety.
         """
-        # Get current state
-        total_power = self.rack.get_total_power()
-        temps = self.rack.get_temperatures()
+        # 1. TOTAL POWER PENALTY (Main objective)
+        total_it_power = sum(s['it_power'] for s in stats)
+        total_cooling_power = sum(s['cooling_power'] for s in stats)
+        total_power = total_it_power + total_cooling_power
+        
+        # Scaling: Baseline total power is around 4000W. 
+        # Strong penalty: 1W saved = 0.5 reward points.
+        power_penalty = total_power / 2.0
+        
+        # 2. PUE BONUS (Efficiency signal)
+        current_pue = total_power / (total_it_power + 1e-6)
+        pue_reward = 50.0 * (1.2 - current_pue) # Bonus for PUE < 1.2
+        
+        # 3. THERMAL SAFETY (Arrhenius-inspired failure avoidance)
+        temps = np.array([s['temp'] for s in stats])
         max_temp = np.max(temps)
-        avg_temp = np.mean(temps)
         
-        # Fan usage (0-1 scale)
-        avg_fan = np.mean(actions)
+        # Nonlinear penalty as we approach limits
+        safety_penalty = 0.0
+        if max_temp > self.config.reward.safe_threshold:
+            safety_penalty = 5.0 * (max_temp - self.config.reward.safe_threshold) ** 1.5
         
-        # ========== REWARD = EFFICIENCY - PENALTIES ==========
+        # 4. ACTION STABILITY (Reduce mechanical wear)
+        action_penalty = 0.0
+        if hasattr(self, 'last_actions'):
+            action_diff = np.mean(np.abs(actions - self.last_actions))
+            action_penalty = 10.0 * action_diff
+        self.last_actions = actions.copy()
+
+        # 5. SURVIVAL BONUS (Encourage longer episodes)
+        survival_bonus = 20.0 
+            
+        total_reward = survival_bonus + pue_reward - power_penalty - safety_penalty - action_penalty
         
-        # 1. POWER EFFICIENCY (Main reward - MAXIMIZE this)
-        # The less power we use, the better. Baseline uses ~3813W average.
-        # Reward for using less than baseline, penalize for using more.
-        baseline_power = 3800.0  # Approximate baseline average power
-        power_diff = baseline_power - total_power
-        power_reward = power_diff / 100.0  # Scale appropriately
-        
-        # 2. FAN EFFICIENCY (Reward low fan usage)
-        # Baseline uses 0.52 average fan. We want to use LESS.
-        fan_reward = 20.0 * (0.6 - avg_fan)  # Max +12 at fan=0, 0 at fan=0.6
-        
-        # 3. TEMPERATURE PENALTY (Only if too hot)
-        temp_penalty = 0.0
-        if max_temp >= 80.0:  # Critical
-            temp_penalty = 100.0
-        elif max_temp >= 70.0:  # Warning
-            temp_penalty = 10.0 * (max_temp - 70.0)
-        elif max_temp >= 60.0:  # Caution
-            temp_penalty = 2.0 * (max_temp - 60.0)
-        # Below 60°C = no penalty (safe zone)
-        
-        # 4. SWEET SPOT BONUS (Optimal temperature range)
-        # Operating around 40-50°C is ideal - warm enough to save energy but safe
-        sweet_spot_bonus = 0.0
-        if 40.0 <= avg_temp <= 55.0:
-            # Peak bonus at 47.5°C (center of optimal range)
-            distance_from_center = abs(avg_temp - 47.5)
-            sweet_spot_bonus = 5.0 * (1.0 - distance_from_center / 7.5)
-        
-        # TOTAL REWARD
-        total_reward = power_reward + fan_reward + sweet_spot_bonus - temp_penalty
-        
+        # Termination penalty
+        if max_temp >= self.config.physics.max_temp:
+            total_reward -= 1000.0
+            
         return float(total_reward)
     
     def render(self) -> None:
