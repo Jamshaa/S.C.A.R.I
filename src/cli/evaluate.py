@@ -86,51 +86,52 @@ class EvaluationRunner:
             self.num_servers = env.get_attr('num_servers')[0]
         else:
             self.num_servers = 10 # Default
-        self.baseline = BaselineController(target_temp=50.0)
+        self.baseline = BaselineController(target_temp=30.0)
     
     def evaluate_baseline(self, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n📊 Evaluating Baseline (PID) Controller...")
-        self.baseline.reset()
-        # VecEnv reset returns only obs
-        obs = self.env.reset()
+        # Reset with fixed seed for fair comparison
+        obs = self.env.reset(seed=42)
+        if hasattr(self.env, 'seed'): # For older gym versions or specific envs
+            self.env.seed(42)
         
         rewards, temps, powers = [], [], []
-        it_powers, cooling_powers, healths = [], [], []
+        it_powers, cooling_powers, healths, all_actions = [], [], [], []
         violations = 0
         
         for _ in tqdm(range(num_steps), desc="Baseline"):
-            # When using VecEnv, obs is (n_envs, obs_shape)
-            # We only have 1 env
             current_obs = obs[0]
             server_temps = current_obs[:self.num_servers] 
             num_servers = len(server_temps)
             
             action = self.baseline.compute_action(server_temps, num_servers)
-            # VecEnv step returns: obs, reward, done, info
             obs, reward, done, info = self.env.step([action])
             
-            # Since n_envs=1, we take index 0
             rewards.append(reward[0])
             temps.append(info[0]['max_temp'])
             powers.append(info[0]['total_power'])
             it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
             cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
             healths.append(info[0].get('avg_health', 1.0))
+            all_actions.append(np.mean(action))
             
             if info[0]['max_temp'] >= self.config.reward.critical_limit:
                 violations += 1
             
-        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, violations)
+        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         return rewards, temps, powers, metrics
 
     def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n🤖 Evaluating Trained Model...")
-        obs = self.env.reset()
-        
+        # Reset with same fixed seed
+        obs = self.env.reset(seed=42)
+        if hasattr(self.env, 'seed'):
+            self.env.seed(42)
+            
         rewards, temps, powers = [], [], []
-        it_powers, cooling_powers, healths = [], [], []
+        it_powers, cooling_powers, healths, all_actions = [], [], [], []
         violations = 0
-        
+       
         for _ in tqdm(range(num_steps), desc="Model"):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, info = self.env.step(action)
@@ -141,17 +142,18 @@ class EvaluationRunner:
             it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
             cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
             healths.append(info[0].get('avg_health', 1.0))
+            all_actions.append(np.mean(action[0]))
             
             if info[0]['max_temp'] >= self.config.reward.critical_limit:
                 violations += 1
         
-        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, violations)
+        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         return rewards, temps, powers, metrics
     
     def _compute_metrics(self, rewards: List[float], temps: List[float], 
                          powers: List[float], it_powers: List[float],
                          cooling_powers: List[float], healths: List[float],
-                         violations: int) -> EvaluationMetrics:
+                         actions: List[float], violations: int) -> EvaluationMetrics:
         temps_array = np.array(temps)
         rewards_array = np.array(rewards)
         powers_array = np.array(powers)
@@ -165,7 +167,7 @@ class EvaluationRunner:
         baseline_power_idle = self.config.physics.p_idle * self.num_servers
         power_efficiency = 1.0 - (np.mean(powers_array) / (baseline_power_idle * 2))
         
-        avg_fan_speed = np.mean([min(1.0, max(0.1, 0.5 + r / 1000)) for r in rewards])
+        avg_fan_speed = np.mean(actions)
         
         # S.C.A.R.I. "True Physics" Metrics
         avg_pue = np.mean(powers_array / (it_array + 1e-6))

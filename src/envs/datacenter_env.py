@@ -70,7 +70,7 @@ class DataCenterEnv(gym.Env):
         
         self.rack.reset()
         
-        self.current_loads = np.random.uniform(
+        self.current_loads = self.np_random.uniform(
             self.config.environment.min_initial_load,
             self.config.environment.max_initial_load,
             self.num_servers
@@ -98,12 +98,11 @@ class DataCenterEnv(gym.Env):
         action = np.clip(action, 0.0, 1.0).astype(np.float32)
         
         # Update workload loads
-        change = np.random.uniform(
-            -self.config.environment.max_load_change_per_step,
-            self.config.environment.max_load_change_per_step,
-            self.num_servers
-        )
-        self.current_loads = np.clip(self.current_loads + change, 0.1, 1.0).astype(np.float32)
+        load_std = self.config.environment.load_std
+        self.current_loads = np.clip(
+            self.current_loads + self.np_random.normal(0, load_std, self.num_servers),
+            0, 1
+        ).astype(np.float32)
         
         # Update server physics
         stats = self.rack.update(self.current_loads, action)

@@ -27,7 +27,7 @@ class PhysicsConfig:
 @dataclass
 class CoolingConfig:
     """Configuration for the cooling system parameters."""
-    max_fan_power: float = 500.0  # Ultra-high density fans for AI hardware
+    max_fan_power: float = 1000.0  # High-performance industrial cooling
     max_pump_power: float = 50.0
     base_pump_power: float = 10.0
     air_cooling_capacity: float = 3000.0
@@ -67,8 +67,9 @@ class EnvironmentConfig:
     num_racks: int = 1
     servers_per_rack: int = 10
     max_load_change_per_step: float = 0.05
-    min_initial_load: float = 0.1
-    max_initial_load: float = 0.3
+    min_initial_load: float = 0.6 # Busy DC
+    max_initial_load: float = 0.9 # Peak utilization
+    load_std: float = 0.1
     episode_length: int = 1000
 
 @dataclass
