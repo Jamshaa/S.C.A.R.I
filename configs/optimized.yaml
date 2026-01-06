@@ -1,0 +1,50 @@
+physics:
+  ambient_temp: 22.0
+  server_thermal_mass: 15000
+  p_idle: 200.0
+  p_max: 800.0
+  r_coeff: 0.5
+  max_temp: 95.0
+  min_temp: 22.0
+  max_temp_change_per_second: 5.0
+
+cooling:
+  # Increased cooling power for more optimization leverage
+  max_fan_power: 500.0  # Realistic industrial cooling
+  max_pump_power: 80.0
+  base_pump_power: 15.0
+  air_cooling_capacity: 4000.0  # Higher capacity
+  liquid_cooling_capacity: 15000.0
+  natural_convection: 80.0
+
+reward:
+  energy_coefficient: 20.0  # Stronger energy optimization
+  safe_threshold: 70.0  # Will be adaptive based on load
+  critical_limit: 90.0
+  thermal_penalty_coefficient: 15.0
+  emergency_penalty: 100.0
+  energy_efficiency_bonus: 5.0
+
+training:
+  timesteps: 1500000  # Longer training for convergence
+  learning_rate: 0.0001  # Lower LR for stability
+  n_steps: 8192  # Larger rollout buffer
+  batch_size: 256
+  gamma: 0.9995  # Higher discount for long-term planning
+  gae_lambda: 0.98
+  ent_coef: 0.005  # Moderate exploration
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  n_epochs: 15
+  clip_range: 0.2
+  normalize_advantage: true
+  normalize_observation: true
+
+environment:
+  num_racks: 1
+  servers_per_rack: 10
+  max_load_change_per_step: 0.08
+  min_initial_load: 0.5  # Realistic DC load
+  max_initial_load: 0.9  # High utilization
+  load_std: 0.12  # Dynamic workload variation
+  episode_length: 2000  # Longer episodes for better learning

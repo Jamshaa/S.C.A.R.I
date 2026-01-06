@@ -19,6 +19,7 @@ from tqdm import tqdm
 from stable_baselines3 import PPO
 
 from src.config import Config, DEFAULT_CONFIG
+from src.utils.visualization import PerformanceVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,12 @@ class EvaluationRunner:
             self.num_servers = 10 # Default
         self.baseline = BaselineController(target_temp=30.0)
     
-    def evaluate_baseline(self, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
+    def evaluate_baseline(self, num_steps: int = 5000, seed: Optional[int] = None) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n📊 Evaluating Baseline (PID) Controller...")
         # Reset with fixed seed for fair comparison
-        obs = self.env.reset(seed=42)
-        if hasattr(self.env, 'seed'): # For older gym versions or specific envs
-            self.env.seed(42)
+        obs = self.env.reset()
+        if hasattr(self.env, 'seed') and seed is not None:
+            self.env.seed(seed)
         
         rewards, temps, powers = [], [], []
         it_powers, cooling_powers, healths, all_actions = [], [], [], []
@@ -121,12 +122,12 @@ class EvaluationRunner:
         metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         return rewards, temps, powers, metrics
 
-    def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
+    def evaluate_model(self, model: PPO, num_steps: int = 5000, seed: Optional[int] = None) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n🤖 Evaluating Trained Model...")
         # Reset with same fixed seed
-        obs = self.env.reset(seed=42)
-        if hasattr(self.env, 'seed'):
-            self.env.seed(42)
+        obs = self.env.reset()
+        if hasattr(self.env, 'seed') and seed is not None:
+            self.env.seed(seed)
             
         rewards, temps, powers = [], [], []
         it_powers, cooling_powers, healths, all_actions = [], [], [], []
@@ -301,7 +302,7 @@ Health: {b_m.average_health*100:.2f}%          {m_m.average_health*100:.2f}%    
 RESULT: {"SCARI is MORE EFFICIENT (Wins! 🎉)" if power_diff > 0 else "SCARI is currently less efficient"}
 """
         
-        with open(self.output_dir / 'report.txt', 'w') as f:
+        with open(self.output_dir / 'report.txt', 'w', encoding='utf-8') as f:
             f.write(report.strip())
 
 @click.command()
@@ -341,17 +342,85 @@ def evaluate(config, model, steps, output, seed):
         return
     
     runner = EvaluationRunner(cfg, env)
-    b_results = runner.evaluate_baseline(steps)
-    m_results = runner.evaluate_model(trained_model, steps)
+    b_results = runner.evaluate_baseline(steps, seed=seed)
+    m_results = runner.evaluate_model(trained_model, steps, seed=seed)
     
+    # Use legacy visualizer
     viz = ComparisonVisualizer(output)
     viz.plot_comparisons(b_results, m_results)
     
-    # Save metrics
-    with open(Path(output) / 'metrics.json', 'w') as f:
-        json.dump({'baseline': b_results[3].to_dict(), 'model': m_results[3].to_dict()}, f, indent=2)
+    # Use advanced visualizer
+    print("\n📊 Creating advanced visualizations...")
+    adv_viz = PerformanceVisualizer(output)
     
-    print("\n✅ Evaluation complete. Results in 'outputs' directory.")
+    # Prepare data for advanced visualizations
+    b_rewards, b_temps, b_powers, b_metrics = b_results
+    m_rewards, m_temps, m_powers, m_metrics = m_results
+    
+    # Get IT and cooling power data
+    b_it_powers = []
+    b_cooling_powers = []
+    m_it_powers = []
+    m_cooling_powers = []
+    
+    # Re-run quick evaluation to get detailed data
+    obs = env.reset()
+    for _ in range(min(steps, len(b_powers))):
+        action = runner.baseline.compute_action(obs[0][:runner.num_servers], runner.num_servers)
+        obs, reward, done, info = env.step([action])
+        b_it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.85))
+        b_cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.15))
+    
+    obs = env.reset()
+    for _ in range(min(steps, len(m_powers))):
+        action, _ = trained_model.predict(obs, deterministic=True)
+        obs, reward, done, info = env.step(action)
+        m_it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.85))
+        m_cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.15))
+    
+    baseline_data = {
+        'temps': b_temps,
+        'powers': b_powers,
+        'it_powers': b_it_powers,
+        'cooling_powers': b_cooling_powers
+    }
+    
+    model_data = {
+        'temps': m_temps,
+        'powers': m_powers,
+        'it_powers': m_it_powers,
+        'cooling_powers': m_cooling_powers
+    }
+    
+    # Create comprehensive dashboard
+    adv_viz.create_comprehensive_dashboard(
+        b_metrics.to_dict(), 
+        m_metrics.to_dict(),
+        baseline_data,
+        model_data
+    )
+    
+    # Create power breakdown chart
+    adv_viz.create_power_breakdown_chart(baseline_data, model_data)
+    
+    # Save metrics
+    with open(Path(output) / 'metrics.json', 'w', encoding='utf-8') as f:
+        json.dump({'baseline': b_metrics.to_dict(), 'model': m_metrics.to_dict()}, f, indent=2)
+    
+    # Print summary
+    power_savings = ((b_metrics.total_power_consumption - m_metrics.total_power_consumption) / 
+                     b_metrics.total_power_consumption) * 100
+    
+    print("\n" + "="*70)
+    print("✅ Evaluation Complete!")
+    print("="*70)
+    print(f"Energy Savings: {power_savings:+.2f}%")
+    print(f"SCARI PUE: {m_metrics.average_pue:.3f}")
+    print(f"Baseline PUE: {b_metrics.average_pue:.3f}")
+    print(f"Max Temperature: {m_metrics.max_temperature:.1f}°C")
+    print(f"Safety Violations: {m_metrics.safety_violations}")
+    print(f"\n📊 Results saved to '{output}' directory")
+    print("="*70)
 
 if __name__ == '__main__':
     evaluate()

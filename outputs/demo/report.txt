@@ -1,0 +1,11 @@
+S.C.A.R.I. v10.5 - ADVANCED COMPARISON REPORT
+=============================================
+
+BASELINE (PID)          SCARI (Attention)    DIFFERENCE
+---------------------------------------------------------------------------
+Power: 4,421.5 Wh        4,285.0 Wh          +3.09%
+Temp:  30.6°C            35.2°C            -15.06%
+PUE:   1.023                1.005                -0.018
+Health: 99.99%          99.99%          -0.002%
+
+RESULT: SCARI is MORE EFFICIENT (Wins! 🎉)

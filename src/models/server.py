@@ -54,16 +54,18 @@ class Server:
         self.power_draw = it_dynamic_power + leakage_power
         heat_generated = self.power_draw
         
-        # 3. Calculate cooling effect
+        # 3. Calculate cooling effect with temperature-aware capacity
         # The higher the inlet temperature, the lower the cooling efficiency
         # Delta_T_effective = T_server - (Ambient + Offset)
         effective_ambient = self.config.physics.ambient_temp + inlet_temp_offset
-        capacity_at_ambient = self.cooling_system.get_cooling_capacity(cooling_action)
+        capacity_at_ambient = self.cooling_system.get_cooling_capacity(
+            cooling_action, 
+            ambient_temp=effective_ambient, 
+            server_temp=self.temperature
+        )
         
-        # Scaling cooling capacity based on temperature gradient
-        # This is a simplification of convective heat transfer
-        temp_gradient_factor = (self.temperature - effective_ambient) / (self.temperature - self.config.physics.ambient_temp + 1e-6)
-        heat_removed = capacity_at_ambient * max(0.1, temp_gradient_factor)
+        # Cooling effectiveness based on temperature gradient
+        heat_removed = capacity_at_ambient
         
         cooling_cost = self.cooling_system.get_power_consumption(cooling_action)
         
