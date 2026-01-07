@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Quick example script to demonstrate improved S.C.A.R.I v11.0
+Quick example script to demonstrate improved S.C.A.R.I
 This script runs a short training session and evaluation with the optimized configuration.
 """
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main():
     print("="*70)
-    print("🚀 S.C.A.R.I v11.0 - Quick Demo")
+    print("🚀 S.C.A.R.I. - Quick Demo")
     print("="*70)
     print("\nThis demo will:")
     print("1. Train a model for 10,000 steps (quick demo)")
@@ -34,7 +34,7 @@ def main():
     ctx.invoke(
         train,
         config='configs/optimized.yaml',
-        timesteps=10000,  # Quick demo
+        timesteps=30000,  # Quick demo but enough to learn basics
         model_dir='data/demo_models',
         log_dir='logs/demo',
         device='auto',
@@ -49,7 +49,7 @@ def main():
     ctx.invoke(
         evaluate,
         config='configs/optimized.yaml',
-        model='data/demo_models/scari_v2_final.zip',
+        model='data/demo_models/scari_final.zip',
         steps=1000,  # Quick eval
         output='outputs/demo',
         seed=42

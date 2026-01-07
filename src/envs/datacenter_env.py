@@ -152,92 +152,102 @@ class DataCenterEnv(gym.Env):
     
     def _calculate_reward(self, stats: List[Dict[str, float]], actions: np.ndarray) -> float:
         """
-        S.C.A.R.I. "Thermal Intelligence" - Advanced Multi-Objective Reward v11.0
+        S.C.A.R.I. "Thermal Intelligence" - Aggressive Energy Optimization Reward
         
-        GOAL: Aggressively minimize TOTAL Power while maintaining thermal safety.
-        Uses quadratic penalties and adaptive targets for superior energy efficiency.
+        GOAL: Achieve 15-25% energy savings through intelligent thermal management.
+        Strongly incentivizes operating at higher safe temperatures with minimal cooling.
         """
-        # 1. TOTAL POWER PENALTY (Primary objective - quadratic for strong incentive)
+        # 1. TOTAL POWER PENALTY (Primary Fixed)
         total_it_power = sum(s['it_power'] for s in stats)
         total_cooling_power = sum(s['cooling_power'] for s in stats)
         total_power = total_it_power + total_cooling_power
-        
-        # Baseline is ~4000W total. Using quadratic penalty to strongly discourage waste.
-        # Normalized power (divide by baseline estimate)
+
         normalized_power = total_power / 4000.0
-        # Quadratic penalty: saving 100W is worth MORE than saving 50W + 50W separately
-        power_penalty = 1000.0 * (normalized_power ** 2)
+        power_penalty = 500.0 * (normalized_power ** 2) 
         
-        # 2. PUE OPTIMIZATION (Primary efficiency metric)
+        power_bonus = 200.0 * (1.0 - min(1.0, normalized_power))
+        
+        # 2. COOLING POWER - Direct penalty (cooling is pure waste)
+        # Penalize cooling quadratically to discourage ANY unnecessary cooling
+        cooling_ratio = total_cooling_power / (total_it_power + 1e-6)
+        cooling_penalty = 800.0 * (cooling_ratio ** 2)
+        
+        # 3. PUE OPTIMIZATION - Industry-leading target
         current_pue = total_power / (total_it_power + 1e-6)
-        # Strongly reward PUE approaching 1.0 (ideal)
-        # Penalize PUE > 1.2 exponentially
-        if current_pue < 1.15:
-            pue_reward = 200.0 * (1.15 - current_pue)
+        # Target PUE < 1.08 for best-in-class efficiency
+        if current_pue < 1.08:
+            pue_bonus = 600.0 * (1.08 - current_pue) ** 0.5
         else:
-            pue_reward = -100.0 * ((current_pue - 1.15) ** 2)
+            pue_penalty = 400.0 * ((current_pue - 1.08) ** 2)
+            pue_bonus = -pue_penalty
         
-        # 3. ADAPTIVE THERMAL SAFETY
+        # 4. THERMAL UTILIZATION - Reward operating at specific EFFICIENT SETPOINT
         temps = np.array([s['temp'] for s in stats])
-        max_temp = np.max(temps)
         avg_temp = np.mean(temps)
         
-        # Dynamic safe threshold based on workload
-        avg_load = np.mean(self.current_loads)
-        adaptive_threshold = self.config.reward.safe_threshold + (10.0 * avg_load)
+        # Target Setpoint: 50.0ºC (The Golden Mean)
+        target_setpoint = 50.0
+        temp_diff = abs(avg_temp - target_setpoint)
         
-        # Progressive penalty as temperature rises
+        # Gaussian bell curve: Balanced to allow slight drift to ~60C
+        temp_utilization_bonus = 1200.0 * np.exp(-0.15 * (temp_diff ** 2))
+        
+        if avg_temp < 30.0:
+            temp_utilization_bonus -= 300.0
+
+        # 5. SAFETY CONSTRAINTS
         safety_penalty = 0.0
-        if max_temp > adaptive_threshold:
-            # Exponential penalty approaching limits
-            temp_ratio = (max_temp - adaptive_threshold) / (self.config.physics.max_temp - adaptive_threshold)
-            safety_penalty = 500.0 * (temp_ratio ** 2)
-        
-        # Bonus for keeping temperatures low when possible
-        temp_efficiency_bonus = 0.0
-        if max_temp < adaptive_threshold - 5.0:
-            temp_efficiency_bonus = 50.0 * (adaptive_threshold - 5.0 - max_temp) / 10.0
-        
-        # 4. COOLING EFFICIENCY BONUS
-        # Reward using minimal cooling while staying safe
-        avg_cooling_action = np.mean(actions)
-        if max_temp < adaptive_threshold:
-            # Safe and using minimal cooling = excellent
-            cooling_efficiency_bonus = 100.0 * (1.0 - avg_cooling_action)
+        danger_threshold = self.config.physics.max_temp - 10.0
+        max_temp = np.max(temps)
+        if max_temp > danger_threshold:
+             danger_ratio = (max_temp - danger_threshold) / 10.0
+             safety_penalty = 2000.0 * (danger_ratio ** 3)
+
+        # 6. ACTION EFFICIENCY
+        avg_action = np.mean(actions)
+        if avg_action > 0.1:
+            action_waste_penalty = 200.0 * ((avg_action - 0.1) ** 2)
         else:
-            cooling_efficiency_bonus = 0.0
-        
-        # 5. ACTION SMOOTHNESS (Reduce mechanical wear and oscillations)
-        action_penalty = 0.0
+            action_waste_penalty = -100.0 * (0.1 - avg_action)
+
+        # 7. ACTION SMOOTHNESS
+        smoothness_penalty = 0.0
         if hasattr(self, 'last_actions'):
             action_diff = np.mean(np.abs(actions - self.last_actions))
-            # Penalize rapid changes
-            action_penalty = 50.0 * (action_diff ** 1.5)
+            smoothness_penalty = 50.0 * (action_diff ** 2)
         self.last_actions = actions.copy()
         
-        # 6. THERMAL STABILITY BONUS
+        # 8. THERMAL STABILITY
         temp_std = np.std(temps)
-        stability_bonus = 20.0 * (1.0 / (1.0 + temp_std))
+        if temp_std < 2.5:
+            stability_bonus = 200.0 * (2.5 - temp_std)
+        else:
+            stability_bonus = -100.0 * ((temp_std - 2.5) ** 2)
         
-        # 7. HEALTH PRESERVATION
+        # 9. SYSTEM HEALTH
         avg_health = np.mean([s['health'] for s in stats])
-        health_bonus = 50.0 * (avg_health - 0.95) if avg_health > 0.95 else -100.0
+        if avg_health > 0.98:
+            health_bonus = 150.0 * (avg_health - 0.98) / 0.02
+        else:
+            health_bonus = -300.0 * (0.98 - avg_health)
         
         # TOTAL REWARD COMPOSITION
         total_reward = (
-            pue_reward +
-            temp_efficiency_bonus +
-            cooling_efficiency_bonus +
+            power_bonus +
+            pue_bonus +
+            temp_utilization_bonus +
             stability_bonus +
             health_bonus -
             power_penalty -
+            cooling_penalty -
             safety_penalty -
-            action_penalty
+            action_waste_penalty -
+            smoothness_penalty
         )
         
-        # Critical failure penalty
+        # CRITICAL FAILURE - Catastrophic penalty
         if max_temp >= self.config.physics.max_temp:
-            total_reward -= 5000.0
+            total_reward -= 10000.0
             
         return float(total_reward)
     

@@ -42,54 +42,49 @@ class CoolingSystem:
         
         if self.mode == "AIR":
             # Realistic fan power: includes deadband and efficiency sweet spot
-            if flow_rate < 0.05:
-                # Deadband - minimal power for monitoring only
-                power = 2.0
+            if flow_rate < 0.1:
+                # Deadband - minimal power for monitoring only (electronics)
+                power = 5.0
             else:
-                # Cubic relationship for fans, but with efficiency curve
-                # Peak efficiency at 70-80% speed
-                efficiency_loss = 1.0 + 0.15 * abs(0.75 - flow_rate)
-                base_power = self.config.max_fan_power * (flow_rate ** 3)
-                # Static pressure losses
-                static_power = 0.05 * self.config.max_fan_power * flow_rate
-                power = (base_power + static_power) * efficiency_loss
+                # Cubic relationship for fans: P ~ flow^3
+                # But actual mechanical efficiency drops at extremes
+                
+                # Base cubic power
+                base_power = self.config.max_fan_power * (flow_rate ** 3.0)
+                
+                # Efficiency curve: Fans are most efficient around 60-80% speed
+                # Penalty for running at 100% (turbulence, backpressure) or very low (motor slip)
+                if 0.4 <= flow_rate <= 0.8:
+                    efficiency_factor = 1.0 # Optimal
+                elif flow_rate > 0.8:
+                    # Exponential penalty near max speed
+                    efficiency_factor = 1.0 + 0.5 * ((flow_rate - 0.8) / 0.2) ** 2
+                else: 
+                     # Low speed inefficiency
+                    efficiency_factor = 1.0 + 0.2 * ((0.4 - flow_rate) / 0.4)
+                
+                power = base_power * efficiency_factor
         
         elif self.mode == "LIQUID":
-            # Pump power: base power + variable power with efficiency curve
+            # Pump power
             if flow_rate < 0.1:
-                # Minimum circulation
-                power = self.config.base_pump_power * 0.5
+                power = self.config.base_pump_power
             else:
-                # Pumps are more efficient than fans but still have losses
-                # Best efficiency point (BEP) around 60-70% flow
-                bep_flow = 0.65
-                efficiency_factor = 1.0 + 0.2 * ((flow_rate - bep_flow) ** 2)
-                variable_power = self.config.max_pump_power * (flow_rate ** 2.5)
-                power = self.config.base_pump_power + (variable_power * efficiency_factor)
+                # Pump power ~ flow^2 (less geometric increase than fans)
+                variable_power = self.config.max_pump_power * (flow_rate ** 2.2)
+                power = self.config.base_pump_power + variable_power
         
         elif self.mode == "HYBRID":
-            # Hybrid system: switch based on efficiency
-            # Prefer liquid cooling at high loads, air at low loads
-            if flow_rate < 0.4:
-                # Air cooling dominant
-                air_flow = flow_rate * 1.5
-                liquid_flow = 0.2
-            else:
-                # Liquid cooling dominant
-                air_flow = 0.3
-                liquid_flow = flow_rate
-            
-            # Recursive call for each subsystem
-            air_system = CoolingSystem("AIR", self.config)
-            liquid_system = CoolingSystem("LIQUID", self.config)
-            power = air_system.get_power_consumption(air_flow) + liquid_system.get_power_consumption(liquid_flow)
+             # Simplified hybrid logic
+            air_part = self.get_power_consumption(flow_rate * 0.7) # Assume split load
+            liquid_part = CoolingSystem("LIQUID", self.config).get_power_consumption(flow_rate * 0.3)
+            power = air_part + liquid_part
         
         else:
-            logger.error(f"Unknown cooling mode: {self.mode}")
             raise ValueError(f"Unknown cooling mode: {self.mode}")
         
         # Apply degradation factor
-        power *= self.efficiency_factor
+        power *= (2.0 - self.efficiency_factor) # Lower efficiency = Higher power
         
         return float(power)
     
@@ -107,38 +102,37 @@ class CoolingSystem:
         """
         flow_rate = np.clip(flow_rate, 0.0, 1.0)
         
-        # Temperature delta affects cooling efficiency
+        # Temperature delta affects cooling effectiveness
+        # Heat transfer Q = m * Cp * DeltaT
         delta_t = max(0.1, server_temp - ambient_temp)
         
         if self.mode == "AIR":
-            # Natural convection always present
-            passive = self.config.natural_convection
+            # Natural convection (always some heat loss)
+            passive = self.config.natural_convection * (delta_t / 20.0)
             
-            # Economizer mode: free cooling when ambient is cool
-            if ambient_temp < 18.0 and flow_rate > 0.1:
-                # Free cooling bonus (outside air economizer)
-                economizer_bonus = 1.5 * self.config.air_cooling_capacity * flow_rate * (18.0 - ambient_temp) / 10.0
-            else:
-                economizer_bonus = 0.0
+            # Economizer mode: Massive free cooling when ambient is low
+            economizer_bonus = 0.0
+            if ambient_temp < 15.0:
+                # Full free cooling available
+                economizer_bonus = 2000.0 * flow_rate
+            elif ambient_temp < 20.0:
+                # Partial free cooling
+                quality = (20.0 - ambient_temp) / 5.0
+                economizer_bonus = 1000.0 * flow_rate * quality
             
-            # Active cooling scales with flow and temperature delta
-            active = flow_rate * self.config.air_cooling_capacity * (delta_t / 30.0)
+            # Active cooling capacity
+            # Scales linearly with flow but depends heavily on Delta T
+            base_capacity = self.config.air_cooling_capacity
+            active = base_capacity * flow_rate * (delta_t / 25.0) # Normalized at 25C delta
             
             return passive + active + economizer_bonus
         
         elif self.mode == "LIQUID":
-            # Liquid cooling more consistent but sensitive to flow
-            # Effectiveness increases with delta-T
+            # Liquid cooling
             effectiveness = min(1.0, delta_t / 40.0)
             base_capacity = flow_rate * self.config.liquid_cooling_capacity
             return base_capacity * effectiveness
-        
-        elif self.mode == "HYBRID":
-            # Combine both modes intelligently
-            air_capacity = 0.3 * flow_rate * self.config.air_cooling_capacity
-            liquid_capacity = 0.7 * flow_rate * self.config.liquid_cooling_capacity
-            return air_capacity + liquid_capacity
-        
+            
         return 0.0
     
     def update_degradation(self, dt: float = 1.0) -> None:

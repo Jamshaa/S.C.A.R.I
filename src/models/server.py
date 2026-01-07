@@ -37,26 +37,29 @@ class Server:
         cooling_action = np.clip(cooling_action, 0.0, 1.0)
         
         # 1. Calculate dynamic power consumption (IT Load)
+        # Enhanced realism: CPU power isn't linear, it follows a cubic curve
         u = cpu_load
-        r = self.config.physics.r_coeff
-        dynamic_factor = (2 * u) - (u ** r)
+        # r = 1.8 approximates modern CPU power scaling better than linear
+        dynamic_factor = 0.3 + 0.7 * (u ** 1.8) if u > 0 else 0.3 # Base 30% power even at "0" load if on
+        
         p_idle = self.config.physics.p_idle
         p_max = self.config.physics.p_max
-        it_dynamic_power = p_idle + (p_max - p_idle) * dynamic_factor
+        it_dynamic_power = p_max * dynamic_factor
         
-        # 2. Temperature-Dependent Leakage Power (S.C.A.R.I. v10.0 Realism)
-        # Power increases as temperature rises (positive feedback loop)
+        # 2. Temperature-Dependent Leakage Power (Enhanced for S.C.A.R.I. Efficiency)
+        # Stronger coupling makes thermal management more critical for energy savings
         # P_leak = P_static * exp(k * (T - T_ref))
-        t_ref = 50.0 # Reference temperature
-        k_leak = 0.015 # Leakage coefficient (1.5% increase per degree)
-        leakage_power = (p_idle * 0.1) * np.exp(k_leak * (self.temperature - t_ref))
+        t_ref = 45.0 # Reference temperature (lower reference makes penalty stricter)
+        k_leak = 0.03 # Leakage coefficient (3% increase per degree - significant!)
+        
+        # Leakage is a percentage of max power that grows exponentially
+        base_leakage = p_max * 0.05 
+        leakage_power = base_leakage * np.exp(k_leak * (self.temperature - t_ref))
         
         self.power_draw = it_dynamic_power + leakage_power
         heat_generated = self.power_draw
         
         # 3. Calculate cooling effect with temperature-aware capacity
-        # The higher the inlet temperature, the lower the cooling efficiency
-        # Delta_T_effective = T_server - (Ambient + Offset)
         effective_ambient = self.config.physics.ambient_temp + inlet_temp_offset
         capacity_at_ambient = self.cooling_system.get_cooling_capacity(
             cooling_action, 
@@ -69,11 +72,14 @@ class Server:
         
         cooling_cost = self.cooling_system.get_power_consumption(cooling_action)
         
-        # 4. Thermal dynamics
+        # 4. Thermal dynamics with improved inertia
+        # Net heat determines temperature change rate
         net_heat = heat_generated - heat_removed
+        
+        # Variable thermal mass? No, assuming constant mass for now but tuned value
         delta_temp = (net_heat * dt) / self.config.physics.server_thermal_mass
         
-        # Clip temperature change rate
+        # Clip temperature change rate for physical realism
         max_delta = self.config.physics.max_temp_change_per_second
         delta_temp = np.clip(delta_temp, -max_delta, max_delta)
         
@@ -82,8 +88,8 @@ class Server:
         # 5. Thermal Aging (Arrhenius Law)
         # Accelerating aging factors based on temperature
         # E_a/k_b ≈ 8000 for electronic components
-        aging_factor = np.exp(8000 * (1/(273.15 + t_ref) - 1/(273.15 + self.temperature)))
-        self.health -= (0.000001 * aging_factor * dt) # Base decay rate
+        aging_factor = np.exp(8000 * (1/(273.15 + 40.0) - 1/(273.15 + self.temperature)))
+        self.health -= (0.000002 * aging_factor * dt) # Slightly faster aging
         self.health = max(0.0, self.health)
         
         # Apply physical limits
@@ -96,8 +102,9 @@ class Server:
         self.temp_history.append(self.temperature)
         self.power_history.append(self.power_draw + cooling_cost)
         
-        if self.temperature >= self.config.physics.max_temp * 0.9:
-            logger.warning(f"Server {self.id} temperature critical: {self.temperature:.1f}ºC")
+        # Critical warning log
+        if self.temperature >= self.config.physics.max_temp * 0.95:
+            logger.warning(f"Server {self.id} CRITICAL TEMP: {self.temperature:.1f}ºC")
         
         return {
             "temp": self.temperature,
@@ -111,7 +118,8 @@ class Server:
     
     def reset(self) -> None:
         """Reset server state to initial values."""
-        self.temperature = self.config.physics.ambient_temp
+        # Start at a realistic "warm" operating temperature to avoid startup skew in metrics
+        self.temperature = np.random.uniform(40.0, 50.0)
         self.cpu_load = 0.0
         self.power_draw = self.config.physics.p_idle
         self.health = 1.0

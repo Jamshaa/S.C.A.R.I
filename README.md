@@ -18,7 +18,7 @@ Modern data centers waste enormous amounts of energy due to conservative, static
 
 > Less energy. Same safety. Smarter decisions.
 
-### Key Improvements (v11.0)
+### Key Improvements
 
 - ✅ **15-25% energy savings** vs baseline PID controllers
 - ✅ **Quadratic reward optimization** for aggressive energy reduction
@@ -102,7 +102,7 @@ S.C.A.R.I/
 ├── logs/                      # Training logs (TensorBoard)
 ├── main.py                    # Main entry point
 └── requirements.txt
-```
+
 
 ---
 
@@ -118,23 +118,23 @@ S.C.A.R.I/
 ```bash
 git clone https://github.com/your-username/S.C.A.R.I.git
 cd S.C.A.R.I
-```
+
 
 2. Create a virtual environment (recommended):
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+
 
 3. Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
+
 
 4. Verify installation:
 ```bash
 python main.py --help
-```
+
 
 ---
 
@@ -154,7 +154,7 @@ python main.py --train --config configs/optimized.yaml --device cuda
 
 # Training with custom checkpoints
 python main.py --train --timesteps 1000000 --config configs/optimized.yaml
-```
+
 
 **Training Process:**
 - Agent learns through trial and error
@@ -163,15 +163,15 @@ python main.py --train --timesteps 1000000 --config configs/optimized.yaml
 - Models auto-saved every 50,000 steps
 
 **Output:**
-- Model: `data/trained_models/scari_v2_final.zip`
+- Model: `data/trained_models/scari_final.zip`
 - Normalization stats: `data/trained_models/vec_normalize.pkl`
-- TensorBoard logs: `logs/SCARI_v2_*/`
+- TensorBoard logs: `logs/SCARI_*/`
 
 **Monitor Training (optional):**
 ```bash
 tensorboard --logdir=logs
 # Navigate to http://localhost:6006
-```
+
 
 ---
 
@@ -187,8 +187,8 @@ python main.py --evaluate --eval-steps 5000
 python main.py --evaluate --eval-steps 10000
 
 # Evaluate specific model
-python main.py --evaluate --model data/trained_models/scari_v2_final.zip
-```
+python main.py --evaluate --model data/trained_models/scari_final.zip
+
 
 **Generated Outputs (`outputs/`):**
 
@@ -223,11 +223,11 @@ The simulator uses simplified but realistic thermodynamic equations.
 
 Dynamic power based on workload with temperature-dependent leakage:
 
-```
+
 P_cpu = P_idle + (P_max - P_idle) · (2u - u^r)
 P_leak = P_static · exp(k · (T - T_ref))
 P_total = P_dynamic + P_leak
-```
+
 
 Where:
 - `u` = CPU utilization (0-1)
@@ -251,10 +251,10 @@ Where:
 
 ### Heat Transfer
 
-```
+
 Q_net = Q_generated - Q_removed
 ΔT = (Q_net · dt) / thermal_mass
-```
+
 
 Heat removal effectiveness scales with temperature differential and cooling mode.
 
@@ -347,22 +347,9 @@ If you use this code in your research, please cite:
   year={2026},
   url={https://github.com/your-username/S.C.A.R.I}
 }
-```
+
 
 ---
 
 > **S.C.A.R.I. doesn't just cool servers — it learns how to think thermally.**
 
----
-
-## 🆕 What's New in v11.0
-
-- ✨ **Quadratic power penalty** for aggressive energy optimization
-- ✨ **Economizer mode** with automatic free cooling
-- ✨ **Adaptive thermal targets** based on real-time workload
-- ✨ **Professional multi-panel dashboards** with clear interpretation
-- ✨ **Temperature-aware cooling capacity** modeling
-- ✨ **Enhanced physics** with component aging and degradation
-- ✨ **Optimized training configuration** for faster convergence
-- ✨ **Cleaned codebase** with redundant folders removed
-- ✨ **Comprehensive visualization system** with power breakdowns

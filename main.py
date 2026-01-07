@@ -14,7 +14,7 @@ import subprocess
 
 def train_model(config='configs/default.yaml', timesteps=500000, device='auto'):
     print("\n" + "="*70)
-    print("🚀 TRAINING S.C.A.R.I. v2.0")
+    print("🚀 TRAINING S.C.A.R.I.")
     print("="*70)
     
     cmd = [
@@ -25,9 +25,9 @@ def train_model(config='configs/default.yaml', timesteps=500000, device='auto'):
     ]
     subprocess.run(cmd, check=True)
 
-def evaluate_model(model='data/trained_models/scari_v2_final.zip', steps=5000):
+def evaluate_model(model='data/trained_models/scari_final.zip', steps=5000):
     print("\n" + "="*70)
-    print("📊 EVALUATING S.C.A.R.I. v2.0")
+    print("📊 EVALUATING S.C.A.R.I.")
     print("="*70)
     
     cmd = [
@@ -38,7 +38,7 @@ def evaluate_model(model='data/trained_models/scari_v2_final.zip', steps=5000):
     subprocess.run(cmd, check=True)
 
 def main():
-    parser = argparse.ArgumentParser(description='S.C.A.R.I. v2.0 Integration Point')
+    parser = argparse.ArgumentParser(description='S.C.A.R.I. Integration Point')
     parser.add_argument('--train', action='store_true', help='Start training cycle')
     parser.add_argument('--evaluate', action='store_true', help='Start evaluation comparison')
     parser.add_argument('--both', action='store_true', help='Train then evaluate')
@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--config', default='configs/default.yaml', help='YAML file for hyperparams/physics')
     parser.add_argument('--device', default='auto', help='Hardware device (cpu, cuda, auto)')
     parser.add_argument('--eval-steps', type=int, default=5000, help='Step count for evaluation session')
-    parser.add_argument('--model', default='data/trained_models/scari_v2_final.zip', help='Path to .zip model')
+    parser.add_argument('--model', default='data/trained_models/scari_final.zip', help='Path to .zip model')
     
     args = parser.parse_args()
     

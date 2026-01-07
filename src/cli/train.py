@@ -23,7 +23,7 @@ def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str
     """Train S.C.A.R.I. agent using Proximal Policy Optimization (PPO)."""
     
     print("="*70)
-    print("S.C.A.R.I. v2.0 - Training Script")
+    print("S.C.A.R.I. - Training Script")
     print("="*70)
     
     np.random.seed(seed)
@@ -111,7 +111,7 @@ def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str
         model.learn(
             total_timesteps=timesteps,
             callback=checkpoint_callback,
-            tb_log_name='SCARI_v2',
+            tb_log_name='SCARI',
             log_interval=10,
         )
     except KeyboardInterrupt:
@@ -121,7 +121,7 @@ def train(config: str, timesteps: int, model_dir: str, log_dir: str, device: str
         raise
     
     print(f"\n\n💾 Saving final model and stats...")
-    model_path = os.path.join(model_dir, 'scari_v2_final.zip')
+    model_path = os.path.join(model_dir, 'scari_final.zip')
     model.save(model_path)
     
     stats_path = os.path.join(model_dir, 'vec_normalize.pkl')

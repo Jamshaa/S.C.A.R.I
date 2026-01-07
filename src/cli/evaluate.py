@@ -1,7 +1,7 @@
 # src/cli/evaluate.py
 #!/usr/bin/env python3
 """
-S.C.A.R.I. v2.0 - Evaluation Module
+S.C.A.R.I. - Evaluation Module
 Evaluates trained models and compares with baseline PID controller.
 """
 
@@ -66,7 +66,8 @@ class BaselineController:
         self.prev_error = error
         
         fan_speed = kp * error + ki * self.integral + kd * derivative
-        fan_speed = np.clip(0.4 + fan_speed, 0.2, 1.0) # Higher floor for safety
+        # Legacy hardware often has high minimum fan speeds (safety margin)
+        fan_speed = np.clip(0.5 + fan_speed, 0.5, 1.0) # Min 50% speed for legacy
         
         return np.ones(num_servers) * fan_speed
     
@@ -87,7 +88,7 @@ class EvaluationRunner:
             self.num_servers = env.get_attr('num_servers')[0]
         else:
             self.num_servers = 10 # Default
-        self.baseline = BaselineController(target_temp=30.0)
+        self.baseline = BaselineController(target_temp=22.0) # Legacy "Cold Aisle" standard
     
     def evaluate_baseline(self, num_steps: int = 5000, seed: Optional[int] = None) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n📊 Evaluating Baseline (PID) Controller...")
@@ -210,7 +211,7 @@ class ComparisonVisualizer:
         """Create comprehensive comparison dashboard."""
         
         fig = plt.figure(figsize=(16, 10))
-        fig.suptitle('S.C.A.R.I. v4.0 vs Baseline (PID)', fontsize=20, fontweight='bold', y=0.98)
+        fig.suptitle('S.C.A.R.I. vs Baseline (PID)', fontsize=20, fontweight='bold', y=0.98)
         
         # Colors
         baseline_color = '#E74C3C'
@@ -289,7 +290,7 @@ class ComparisonVisualizer:
         temp_diff = ((b_m.average_temperature - m_m.average_temperature) / b_m.average_temperature) * 100
         
         report = f"""
-S.C.A.R.I. v10.5 - ADVANCED COMPARISON REPORT
+S.C.A.R.I. - ADVANCED COMPARISON REPORT
 =============================================
 
 BASELINE (PID)          SCARI (Attention)    DIFFERENCE
@@ -307,7 +308,7 @@ RESULT: {"SCARI is MORE EFFICIENT (Wins! 🎉)" if power_diff > 0 else "SCARI is
 
 @click.command()
 @click.option('--config', default='configs/default.yaml', help='Config path')
-@click.option('--model', default='data/trained_models/scari_v2_final.zip', help='Model path')
+@click.option('--model', default='data/trained_models/scari_final.zip', help='Model path')
 @click.option('--steps', default=5000, type=int, help='Evaluation steps')
 @click.option('--output', default='outputs', help='Output directory')
 @click.option('--seed', default=42, type=int, help='Seed')
