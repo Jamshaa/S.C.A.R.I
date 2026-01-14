@@ -1,15 +1,11 @@
-# src/config.py
+# src/utils/config.py
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
+from pathlib import Path
 import yaml
 import json
 import logging
 
-# Configure basic logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -27,7 +23,8 @@ class PhysicsConfig:
 @dataclass
 class CoolingConfig:
     """Configuration for the cooling system parameters."""
-    max_fan_power: float = 1000.0  # High-performance industrial cooling
+    mode: str = "AIR"
+    max_fan_power: float = 1000.0
     max_pump_power: float = 50.0
     base_pump_power: float = 10.0
     air_cooling_capacity: float = 3000.0
@@ -37,12 +34,16 @@ class CoolingConfig:
 @dataclass
 class RewardConfig:
     """Configuration for reward calculation parameters."""
+    target_temp_min: float = 50.0
+    target_temp_max: float = 60.0
+    safety_limit: float = 75.0
+    critical_limit: float = 85.0
+    energy_weight: float = 0.8
+    safety_weight: float = 2.0
+    stability_weight: float = 0.2
+    # Keep legacy names as optional or defaults if needed for compatibility
     energy_coefficient: float = 15.0
-    safe_threshold: float = 70.0
-    critical_limit: float = 90.0
     thermal_penalty_coefficient: float = 10.0
-    emergency_penalty: float = 100.0
-    energy_efficiency_bonus: float = 2.0
 
 @dataclass
 class TrainingConfig:
@@ -64,11 +65,13 @@ class TrainingConfig:
 @dataclass
 class EnvironmentConfig:
     """Configuration for the datacenter environment structure."""
+    num_servers: int = 10
+    max_steps: int = 1000
     num_racks: int = 1
     servers_per_rack: int = 10
     max_load_change_per_step: float = 0.05
-    min_initial_load: float = 0.6 # Busy DC
-    max_initial_load: float = 0.9 # Peak utilization
+    min_initial_load: float = 0.6
+    max_initial_load: float = 0.9
     load_std: float = 0.1
     episode_length: int = 1000
 
@@ -82,8 +85,9 @@ class Config:
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     
     @classmethod
-    def from_yaml(cls, path: str) -> 'Config':
+    def from_yaml(cls, path: Union[str, Path]) -> 'Config':
         """Load configuration from a YAML file."""
+        path = Path(path)
         try:
             with open(path, 'r') as f:
                 data = yaml.safe_load(f)
@@ -108,8 +112,9 @@ class Config:
             'environment': self.environment.__dict__,
         }
     
-    def to_json(self, path: str) -> None:
+    def to_json(self, path: Union[str, Path]) -> None:
         """Save configuration to a JSON file."""
+        path = Path(path)
         try:
             with open(path, 'w') as f:
                 json.dump(self.to_dict(), f, indent=2)
@@ -118,32 +123,3 @@ class Config:
             raise
 
 DEFAULT_CONFIG = Config()
-AGGRESSIVE_CONFIG = Config(
-    reward=RewardConfig(
-        energy_coefficient=20.0,
-        safe_threshold=75.0,
-        thermal_penalty_coefficient=5.0,
-    )
-)
-CONSERVATIVE_CONFIG = Config(
-    reward=RewardConfig(
-        energy_coefficient=10.0,
-        safe_threshold=65.0,
-        thermal_penalty_coefficient=15.0,
-    )
-)
-PRODUCTION_CONFIG = Config(
-    physics=PhysicsConfig(
-        ambient_temp=24.0,
-        p_idle=250.0,
-    ),
-    training=TrainingConfig(
-        timesteps=1000000,
-        learning_rate=0.00005,
-    ),
-    reward=RewardConfig(
-        energy_coefficient=15.0,
-        safe_threshold=70.0,
-        critical_limit=85.0,
-    )
-)

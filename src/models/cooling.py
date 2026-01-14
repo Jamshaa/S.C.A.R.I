@@ -19,7 +19,7 @@ class CoolingSystem:
         self.mode = mode
         self.config = config
         if self.config is None:
-            from src.config import CoolingConfig
+            from src.utils.config import CoolingConfig
             self.config = CoolingConfig()
         
         # Track efficiency degradation over time

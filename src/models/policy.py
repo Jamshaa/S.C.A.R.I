@@ -1,4 +1,4 @@
-# src/models/attention_policy.py
+# src/models/policy.py
 import torch as th
 import torch.nn as nn
 from gymnasium import spaces
