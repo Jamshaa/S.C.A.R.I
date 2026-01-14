@@ -18,21 +18,21 @@
     "natural_convection": 80.0
   },
   "reward": {
-    "energy_coefficient": 20.0,
-    "safe_threshold": 70.0,
+    "energy_coefficient": 30.0,
+    "safe_threshold": 65.0,
     "critical_limit": 90.0,
-    "thermal_penalty_coefficient": 15.0,
-    "emergency_penalty": 100.0,
-    "energy_efficiency_bonus": 5.0
+    "thermal_penalty_coefficient": 20.0,
+    "emergency_penalty": 150.0,
+    "energy_efficiency_bonus": 10.0
   },
   "training": {
-    "timesteps": 1500000,
-    "learning_rate": 0.0001,
+    "timesteps": 1000000,
+    "learning_rate": 8e-05,
     "n_steps": 8192,
     "batch_size": 256,
-    "gamma": 0.9995,
+    "gamma": 0.9998,
     "gae_lambda": 0.98,
-    "ent_coef": 0.005,
+    "ent_coef": 0.008,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
     "n_epochs": 15,
@@ -43,10 +43,10 @@
   "environment": {
     "num_racks": 1,
     "servers_per_rack": 10,
-    "max_load_change_per_step": 0.08,
-    "min_initial_load": 0.5,
-    "max_initial_load": 0.9,
-    "load_std": 0.12,
-    "episode_length": 2000
+    "max_load_change_per_step": 0.1,
+    "min_initial_load": 0.4,
+    "max_initial_load": 0.95,
+    "load_std": 0.15,
+    "episode_length": 2500
   }
 }
