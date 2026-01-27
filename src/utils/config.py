@@ -29,6 +29,8 @@ class CoolingConfig:
     base_pump_power: float = 10.0
     air_cooling_capacity: float = 3000.0
     liquid_cooling_capacity: float = 12000.0
+    max_capacity: float = 6000.0  # Total BTU/h or similar unit
+    p_max_cooling: float = 500.0  # Max cooling electricity usage
     natural_convection: float = 50.0
 
 @dataclass
@@ -91,12 +93,13 @@ class Config:
         try:
             with open(path, 'r') as f:
                 data = yaml.safe_load(f)
+            env_data = data.get('environment', data.get('env', {}))
             return cls(
                 physics=PhysicsConfig(**data.get('physics', {})),
                 cooling=CoolingConfig(**data.get('cooling', {})),
                 reward=RewardConfig(**data.get('reward', {})),
                 training=TrainingConfig(**data.get('training', {})),
-                environment=EnvironmentConfig(**data.get('environment', {})),
+                environment=EnvironmentConfig(**env_data),
             )
         except Exception as e:
             logger.error(f"Error loading config from {path}: {e}")

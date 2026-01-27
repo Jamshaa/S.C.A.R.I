@@ -31,12 +31,13 @@ class PerformanceVisualizer:
         
         # Color scheme
         self.colors = {
-            'baseline': '#FF6B6B',  # Warm red - less efficient
-            'scari': '#4ECDC4',     # Teal - efficient AI
-            'savings': '#95E1D3',   # Light teal
-            'warning': '#FFE66D',   # Yellow
-            'danger': '#F25C54',    # Red
-            'safe': '#6BCF7F',      # Green
+            'baseline': '#E63946',  # Sharp red - classic/legacy
+            'scari': '#1D3557',     # Deep blue - professional AI
+            'savings': '#A8DADC',   # High-contrast light teal
+            'warning': '#FFB703',   # Amber warning
+            'danger': '#D00000',    # Critical red
+            'safe': '#2A9D8F',      # Professional green
+            'background': '#F8F9FA' # Off-white background
         }
     
     def create_comprehensive_dashboard(
@@ -44,44 +45,27 @@ class PerformanceVisualizer:
         baseline_metrics: Dict[str, Any],
         model_metrics: Dict[str, Any],
         baseline_data: Dict[str, List[float]],
-        model_data: Dict[str, List[float]]
+        model_data: Dict[str, List[float]],
+        save_individual: bool = True
     ) -> None:
         """
-        Create a comprehensive performance dashboard with multiple subplots.
-        
-        Args:
-            baseline_metrics: Aggregated baseline metrics
-            model_metrics: Aggregated SCARI model metrics
-            baseline_data: Time-series data for baseline
-            model_data: Time-series data for SCARI model
+        Create a comprehensive performance dashboard and optionally individual charts.
         """
-        # Create figure with custom layout
+        # 1. First, generate individual high-res charts with clear titles
+        if save_individual:
+            self._save_individual_charts(baseline_metrics, model_metrics, baseline_data, model_data)
+
+        # 2. Generate the summary dashboard
         fig = plt.figure(figsize=(20, 12))
         gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
         
-        # 1. Power Consumption Comparison (Top Left - Large)
-        ax1 = fig.add_subplot(gs[0:2, 0])
-        self._plot_power_comparison(ax1, baseline_data, model_data)
-        
-        # 2. Temperature Management (Top Middle - Large)
-        ax2 = fig.add_subplot(gs[0:2, 1])
-        self._plot_temperature_comparison(ax2, baseline_data, model_data)
-        
-        # 3. Energy Savings Over Time (Top Right - Large)
-        ax3 = fig.add_subplot(gs[0:2, 2])
-        self._plot_cumulative_savings(ax3, baseline_data, model_data)
-        
-        # 4. PUE Comparison (Bottom Left)
-        ax4 = fig.add_subplot(gs[2, 0])
-        self._plot_pue_comparison(ax4, baseline_metrics, model_metrics)
-        
-        # 5. Efficiency Metrics (Bottom Middle)
-        ax5 = fig.add_subplot(gs[2, 1])
-        self._plot_efficiency_metrics(ax5, baseline_metrics, model_metrics)
-        
-        # 6. Overall Summary Card (Bottom Right)
-        ax6 = fig.add_subplot(gs[2, 2])
-        self._plot_summary_card(ax6, baseline_metrics, model_metrics)
+        # ... (rest of the dashboard logic remains but we use the shared plotting methods)
+        self._plot_power_comparison(fig.add_subplot(gs[0:2, 0]), baseline_data, model_data)
+        self._plot_temperature_comparison(fig.add_subplot(gs[0:2, 1]), baseline_data, model_data)
+        self._plot_cumulative_savings(fig.add_subplot(gs[0:2, 2]), baseline_data, model_data)
+        self._plot_pue_comparison(fig.add_subplot(gs[2, 0]), baseline_metrics, model_metrics)
+        self._plot_efficiency_metrics(fig.add_subplot(gs[2, 1]), baseline_metrics, model_metrics)
+        self._plot_summary_card(fig.add_subplot(gs[2, 2]), baseline_metrics, model_metrics)
         
         # Main title
         savings_pct = ((baseline_metrics['total_power_consumption'] - 
@@ -90,15 +74,28 @@ class PerformanceVisualizer:
         
         title_color = self.colors['safe'] if savings_pct > 0 else self.colors['danger']
         fig.suptitle(
-            f'S.C.A.R.I Performance Dashboard | Energy Savings: {savings_pct:+.1f}%',
-            fontsize=18, fontweight='bold', color=title_color
+            f'SCARI Performance Report | Total Savings: {savings_pct:.1f}%',
+            fontsize=22, fontweight='bold', color=title_color
         )
         
-        # Save
         plt.savefig(self.output_dir / 'comprehensive_dashboard.png', 
-                   bbox_inches='tight', facecolor='white')
+                   bbox_inches='tight', facecolor='white', dpi=300)
         plt.close()
-        print(f"✅ Comprehensive dashboard saved to {self.output_dir / 'comprehensive_dashboard.png'}")
+
+    def _save_individual_charts(self, bm, mm, bd, md):
+        """Saves each metric as a standalone, clear image."""
+        plots = [
+            (self._plot_power_comparison, (bd, md), '1_electricity_usage.png'),
+            (self._plot_temperature_comparison, (bd, md), '2_thermal_safety.png'),
+            (self._plot_cumulative_savings, (bd, md), '3_total_savings.png'),
+            (self._plot_pue_comparison, (bm, mm), '4_efficiency_score.png'),
+        ]
+        
+        for func, args, filename in plots:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            func(ax, *args)
+            plt.savefig(self.output_dir / filename, bbox_inches='tight', dpi=300)
+            plt.close()
     
     def _plot_power_comparison(self, ax, baseline_data, model_data):
         """Plot detailed power consumption comparison."""
@@ -119,27 +116,23 @@ class PerformanceVisualizer:
                            where=savings_mask, color=self.colors['savings'],
                            alpha=0.3, label='Energy Saved')
         
-        ax.set_xlabel('Time Steps', fontweight='bold')
-        ax.set_ylabel('Total Power (W)', fontweight='bold')
-        ax.set_title('Power Consumption Over Time', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
+        ax.set_ylabel('Electricity Consumption (Watts)', fontweight='bold')
+        ax.set_title('Electricity Usage: SCARI vs Standard', fontsize=14, fontweight='bold')
         ax.legend(loc='upper right', framealpha=0.9)
         ax.grid(True, alpha=0.3)
         
         # Add average lines
         baseline_avg = np.mean(baseline_data['powers'])
         model_avg = np.mean(model_data['powers'])
-        ax.axhline(baseline_avg, color=self.colors['baseline'], 
-                  linestyle='--', alpha=0.5, linewidth=1)
-        ax.axhline(model_avg, color=self.colors['scari'], 
-                  linestyle='--', alpha=0.5, linewidth=1)
         
-        # Annotations
-        ax.text(0.02, 0.98, f'Baseline Avg: {baseline_avg:.0f}W',
+        # Annotations (Clearer for beginners)
+        ax.text(0.02, 0.98, f'Standard System: {baseline_avg:.0f}W (Average)',
                transform=ax.transAxes, va='top', fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=self.colors['baseline'], alpha=0.3))
-        ax.text(0.02, 0.90, f'SCARI Avg: {model_avg:.0f}W',
+               bbox=dict(boxstyle='round', facecolor=self.colors['baseline'], alpha=0.2))
+        ax.text(0.02, 0.92, f'SCARI AI System: {model_avg:.0f}W (Average)',
                transform=ax.transAxes, va='top', fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=self.colors['scari'], alpha=0.3))
+               bbox=dict(boxstyle='round', facecolor=self.colors['scari'], alpha=0.2))
     
     def _plot_temperature_comparison(self, ax, baseline_data, model_data):
         """Plot temperature management strategies."""
@@ -158,12 +151,12 @@ class PerformanceVisualizer:
         ax.axhspan(70, 85, alpha=0.1, color=self.colors['warning'], label='Caution Zone')
         ax.axhspan(85, 100, alpha=0.1, color=self.colors['danger'], label='Danger Zone')
         
-        ax.set_xlabel('Time Steps', fontweight='bold')
-        ax.set_ylabel('Max Temperature (°C)', fontweight='bold')
-        ax.set_title('Thermal Management Strategy', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
+        ax.set_ylabel('Server Temperature (°C)', fontweight='bold')
+        ax.set_title('Thermal Safety: Keeping Servers Cool', fontsize=14, fontweight='bold')
         ax.legend(loc='upper right', framealpha=0.9, fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_ylim(20, 100)
+        ax.set_ylim(40, 95)
         
         # Statistics annotations
         baseline_avg_temp = np.mean(baseline_data['temps'])
@@ -190,10 +183,10 @@ class PerformanceVisualizer:
         ax.plot(time, savings_cumsum, color=color, linewidth=3)
         ax.fill_between(time, 0, savings_cumsum, alpha=0.3, color=color)
         
-        ax.axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.5)
-        ax.set_xlabel('Time Steps', fontweight='bold')
-        ax.set_ylabel('Cumulative Energy Saved (kWh)', fontweight='bold')
-        ax.set_title('Cumulative Energy Savings', fontsize=14, fontweight='bold')
+        ax.axhline(0, color='black', linestyle='-', linewidth=1, alpha=0.3)
+        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
+        ax.set_ylabel('Total Energy Saved (kWh)', fontweight='bold')
+        ax.set_title('Money Saved: Cumulative Progress', fontsize=14, fontweight='bold')
         ax.grid(True, alpha=0.3)
         
         # Final savings annotation
@@ -223,10 +216,11 @@ class PerformanceVisualizer:
         ax.axhline(1.2, color='orange', linestyle='--', linewidth=1.5,
                   label='Industry Target = 1.2', alpha=0.7)
         
-        ax.set_ylabel('Power Usage Effectiveness (PUE)', fontweight='bold')
-        ax.set_title('PUE Comparison', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Efficiency Score (PUE)', fontweight='bold')
+        ax.set_title('How Efficient is the Cooling? (Lower is better)', fontsize=12, fontweight='bold')
         ax.legend(fontsize=8)
-        ax.set_ylim(0.9, max(pue_values) * 1.2)
+        # Zoom in on the important range for PUE
+        ax.set_ylim(1.0, max(pue_values) * 1.1)
         ax.grid(axis='y', alpha=0.3)
         
         # Add value labels on bars
@@ -294,36 +288,34 @@ class PerformanceVisualizer:
         
         # Create summary text
         if power_pct > 0:
-            verdict = "✅ IMPROVEMENT"
+            verdict = "PERFORMANCE IMPROVED"
             verdict_color = self.colors['safe']
         elif power_pct > -2:
-            verdict = "⚠️ MARGINAL"
+            verdict = "MARGINAL PERFORMANCE"
             verdict_color = self.colors['warning']
         else:
-            verdict = "❌ REGRESSION"
+            verdict = "PERFORMANCE REGRESSION"
             verdict_color = self.colors['danger']
         
         summary = f"""
-        Performance Summary
-        ═══════════════════════
+        {verdict}
+        ---------------------------
         
-        Overall: {verdict}
+        ENERGY SAVINGS
+        • Power Efficiency: {power_pct:+.1f}%
+        • Total Energy Δ: {power_diff/1e6:+.2f} MWh
         
-        Energy Savings:
-        • Power: {power_pct:+.1f}%
-        • Total: {power_diff/1e6:+.2f} MWh
+        COOLING EFFICIENCY
+        • PUE Improvement: {pue_diff:+.3f}
+        • Final SCARI PUE: {model_metrics.get('average_pue', 1.0):.3f}
         
-        Efficiency:
-        • PUE Δ: {pue_diff:+.3f}
-        • SCARI PUE: {model_metrics.get('average_pue', 1.0):.3f}
+        THERMAL CONTROL
+        • Mean Temp Δ: {temp_diff:+.1f}°C
+        • Max Observed: {model_metrics['max_temperature']:.1f}°C
         
-        Thermal:
-        • Temp Δ: {temp_diff:+.1f}°C
-        • Max: {model_metrics['max_temperature']:.1f}°C
-        
-        Safety:
-        • Violations: {model_metrics.get('safety_violations', 0)}
-        • Health: {model_metrics.get('average_health', 1.0):.4f}
+        SAFETY & RELIABILITY
+        • Safety Violations: {model_metrics.get('safety_violations', 0)}
+        • Average Health: {model_metrics.get('average_health', 1.0):.4f}
         """
         
         ax.text(0.5, 0.5, summary, transform=ax.transAxes,
@@ -364,4 +356,4 @@ class PerformanceVisualizer:
         plt.tight_layout()
         plt.savefig(self.output_dir / 'power_breakdown.png', bbox_inches='tight', dpi=300)
         plt.close()
-        print(f"✅ Power breakdown chart saved to {self.output_dir / 'power_breakdown.png'}")
+        print(f"Power breakdown chart saved to {self.output_dir / 'power_breakdown.png'}")
