@@ -130,7 +130,9 @@ class EvaluationRunner:
     def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict]]:
         print("\n🤖 Evaluating SCARI-v2 Model...")
         obs = self.env.reset()
-        explainer = DecisionExplainer(max_history=num_steps)
+        t_min = self.config.physics.min_temp
+        t_max = self.config.physics.max_temp
+        explainer = DecisionExplainer(t_min=t_min, t_max=t_max, max_history=num_steps)
             
         rewards, temps, powers = [], [], []
         it_powers, cooling_powers, healths, all_actions = [], [], [], []

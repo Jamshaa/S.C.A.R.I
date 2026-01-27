@@ -6,8 +6,10 @@ from collections import deque
 class DecisionExplainer:
     """Explains SCARI agent decisions in human-readable format."""
     
-    def __init__(self, max_history=100):
+    def __init__(self, t_min: float = 30.0, t_max: float = 85.0, max_history=100):
         self.decision_history = deque(maxlen=max_history)
+        self.t_min = t_min
+        self.t_max = t_max
         self.feature_names = [
             "Server 0 Temp", "Server 1 Temp", "Server 2 Temp", "Server 3 Temp", "Server 4 Temp",
             "Server 5 Temp", "Server 6 Temp", "Server 7 Temp", "Server 8 Temp", "Server 9 Temp",
@@ -34,8 +36,10 @@ class DecisionExplainer:
             action = action.flatten()
             
         num_servers = len(action)
-        temps = observation[:num_servers]
-        loads = observation[num_servers:]
+        norm_temps = observation[:num_servers]
+        # Denormalize temps for reasoning
+        temps = norm_temps * (self.t_max - self.t_min) + self.t_min
+        loads = observation[num_servers:2*num_servers] # Health might be after loads
         
         # Calculate feature importance (simple gradient-based attribution)
         feature_importance = self._calculate_feature_importance(temps, loads, action)
