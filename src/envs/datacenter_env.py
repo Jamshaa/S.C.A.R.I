@@ -135,44 +135,68 @@ class DataCenterEnv(gym.Env):
         # Loads and Health are already roughly [0, 1]
         return np.concatenate([norm_temps, loads, health]).astype(np.float32)
     
-    def _calculate_reward(self, stats: List[Dict[str, float]], actions: np.ndarray) -> float:
+    def _calculate_reward(self, stats: List[Dict[str, Any]], actions: np.ndarray) -> float:
         """
-        REALISTIC Reward Function for SCARI.
-        Balances energy efficiency with thermal safety for production-grade operation.
-        Target: 20-30% savings with safe 45-55°C operation.
+        Multi-profile Reward Function for SCARI.
+        Supports specialized training for different deployment scenarios.
         """
         it_power = sum(s['it_power'] for s in stats)
         cooling_power = sum(s['cooling_power'] for s in stats)
         total_power = it_power + cooling_power
         
-        # 1. PUE Reward (Target < 1.15 for realistic efficiency)
-        pue = total_power / (it_power + 1e-6)
-        pue_reward = 80.0 * max(0, 1.15 - pue)
-        
-        # 2. Thermal Efficiency (REALISTIC target at 45°C for safe operation)
         avg_temp = np.mean([s['temp'] for s in stats])
-        # Gaussian target centered at 45°C (industry efficient range)
-        thermal_reward = 400.0 * np.exp(-0.015 * (avg_temp - 45.0)**2)
-        
-        # 3. Penalties
-        # STRICT safety penalty at 70°C (well before hardware risk)
         max_temp = np.max([s['temp'] for s in stats])
-        safety_penalty = 0.0
-        if max_temp > 70.0:
-            safety_penalty = 500.0 * (max_temp - 70.0)**2
-        
-        # Moderate cooling action penalty (encourage efficiency but allow necessary cooling)
-        cooling_action_penalty = 100.0 * np.mean(actions)**2
-        
-        # INCREASED health penalty (hardware longevity is critical)
         avg_health = np.mean([s['health'] for s in stats])
-        health_penalty = 2000.0 * (1.0 - avg_health)
+        pue = total_power / (it_power + 1e-6)
+        
+        profile = self.config.reward.profile
+        
+        if profile == "PRODUCTION_SAFE":
+            # 🛡️ PRODUCTION SAFE: Priority is Thermal Stability & Safety
+            pue_reward = 20.0 * max(0, 1.20 - pue) # Low priority for PUE
+            
+            # Narrow Gaussian centered at 45°C (Ideal ASHRAE range)
+            thermal_reward = 800.0 * np.exp(-0.02 * (avg_temp - 45.0)**2)
+            
+            # Early and aggressive safety penalties
+            safety_penalty = 0.0
+            if max_temp > 55.0: # Penalty starts MUCH earlier
+                safety_penalty = 1000.0 * (max_temp - 55.0)**2
+            
+            cooling_action_penalty = 50.0 * np.mean(actions)**2 # Low penalty to allow cooling
+            health_penalty = 5000.0 * (1.0 - avg_health) # Very high priority
+            
+        elif profile == "MAX_EFFICIENCY":
+            # 🔥 MAX EFFICIENCY: Priority is Energy Savings
+            pue_reward = 150.0 * max(0, 1.15 - pue) # High priority for PUE
+            
+            # Broad Gaussian (don't care as much about exact temp, just stay below critical)
+            thermal_reward = 200.0 * np.exp(-0.005 * (avg_temp - 55.0)**2)
+            
+            # Standard safety penalties
+            safety_penalty = 0.0
+            if max_temp > 70.0:
+                safety_penalty = 500.0 * (max_temp - 70.0)**2
+            
+            cooling_action_penalty = 200.0 * np.mean(actions)**2 # High penalty to discourage fan use
+            health_penalty = 1000.0 * (1.0 - avg_health)
+            
+        else: # BALANCED
+            pue_reward = 80.0 * max(0, 1.15 - pue)
+            thermal_reward = 400.0 * np.exp(-0.015 * (avg_temp - 45.0)**2)
+            
+            safety_penalty = 0.0
+            if max_temp > 70.0:
+                safety_penalty = 500.0 * (max_temp - 70.0)**2
+                
+            cooling_action_penalty = 100.0 * np.mean(actions)**2
+            health_penalty = 2000.0 * (1.0 - avg_health)
         
         reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty
         
-        # Episode failure (emergency shutdown temperature)
+        # Disaster prevention
         if max_temp >= self.config.physics.max_temp:
-            reward -= 5000.0
+            reward -= 10000.0
             
         return float(reward)
 

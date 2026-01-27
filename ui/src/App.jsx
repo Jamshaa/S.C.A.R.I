@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
   Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
-  Download, AlertCircle, CheckCircle2, Loader2, Info
+  Download, AlertCircle, CheckCircle2, Loader2, Info,
+  Brain, MessageSquare, History, BarChart
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -26,6 +27,7 @@ const App = () => {
   const [evalSteps, setEvalSteps] = useState(5000);
   const [evalLog, setEvalLog] = useState('');
   const [toasts, setToasts] = useState([]);
+  const [selectedDecision, setSelectedDecision] = useState(null);
 
   useEffect(() => {
     fetchModels();
@@ -108,7 +110,10 @@ const App = () => {
             const resultsRes = await fetch(`${API_BASE}/results`);
             const resultsData = await resultsRes.json();
             setResults(resultsData);
-            addToast('Evaluation complete. dashboard updated.', 'success');
+            if (resultsData.metrics?.decisions?.length > 0) {
+              setSelectedDecision(resultsData.metrics.decisions[0]);
+            }
+            addToast('Evaluation complete. Dashboard updated.', 'success');
           }
         } catch (err) {
           console.error("Polling error:", err);
@@ -355,6 +360,116 @@ const App = () => {
              )}
           </div>
         </section>
+
+        {/* Explainability Section */}
+        {results?.metrics?.decisions && (
+          <section className="animate-fade-in" style={{ animationDelay: '0.8s', marginTop: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
+              <Brain size={24} color="var(--accent-primary)" />
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Explainable AI Dashboard</h2>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
+              {/* Decision Timeline */}
+              <div className="card" style={{ maxHeight: '600px', display: 'flex', flexDirection: 'column' }}>
+                <div className="card-header">
+                  <h3 style={{ fontSize: '1rem' }}><History size={18} /> Decision History</h3>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+                  {results.metrics.decisions.map((d, i) => (
+                    <div 
+                      key={i} 
+                      className={`decision-item ${selectedDecision?.step === d.step ? 'active' : ''}`}
+                      onClick={() => setSelectedDecision(d)}
+                      style={{
+                        padding: '1rem',
+                        borderRadius: '12px',
+                        marginBottom: '0.8rem',
+                        cursor: 'pointer',
+                        background: selectedDecision?.step === d.step ? 'rgba(0, 243, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
+                        border: selectedDecision?.step === d.step ? '1px solid var(--accent-primary)' : '1px solid transparent',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 600 }}>Step {d.step}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.8rem', color: d.avg_temp > 65 ? 'var(--danger)' : 'var(--success)' }}>
+                            {d.avg_temp.toFixed(1)}°C
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: '0.5rem', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px' }}>
+                        <div style={{ height: '100%', width: `${d.confidence * 100}%`, background: 'var(--accent-primary)', borderRadius: '2px' }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reasoning & Attribution */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {selectedDecision ? (
+                  <>
+                    <div className="card">
+                      <div className="card-header">
+                        <h3 style={{ fontSize: '1rem' }}><MessageSquare size={18} /> Agent Reasoning</h3>
+                        <div className="badge" style={{ background: 'rgba(0, 243, 255, 0.1)', color: 'var(--accent-primary)' }}>
+                          Confidence: {(selectedDecision.confidence * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                      <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {selectedDecision.reasoning.map((r, i) => (
+                          <div key={i} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                            <div style={{ padding: '0.4rem', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }}>
+                              <ChevronRight size={14} />
+                            </div>
+                            <p style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>{r}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <div className="card-header">
+                        <h3 style={{ fontSize: '1rem' }}><BarChart size={18} /> Feature Attribution</h3>
+                      </div>
+                      <div style={{ padding: '1.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                          Analysis of which inputs most influenced this specific cooling decision.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          {Object.entries(selectedDecision.feature_importance).map(([feature, value], i) => (
+                            <div key={i}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
+                                <span>{feature}</span>
+                                <span style={{ color: 'var(--accent-primary)' }}>{(value * 100).toFixed(1)}%</span>
+                              </div>
+                              <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div 
+                                  style={{ 
+                                    height: '100%', 
+                                    width: `${value * 100 * 3}%`, // Scaled for visibility
+                                    background: `linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))`,
+                                    borderRadius: '4px'
+                                  }} 
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5 }}>
+                    <p>Select a decision step to view reasoning</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       {/* Toasts */}

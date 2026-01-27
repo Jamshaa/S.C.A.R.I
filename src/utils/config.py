@@ -43,6 +43,7 @@ class RewardConfig:
     energy_weight: float = 0.8
     safety_weight: float = 2.0
     stability_weight: float = 0.2
+    profile: str = "BALANCED"  # Options: MAX_EFFICIENCY, PRODUCTION_SAFE, BALANCED
     # Keep legacy names as optional or defaults if needed for compatibility
     energy_coefficient: float = 15.0
     thermal_penalty_coefficient: float = 10.0

@@ -20,6 +20,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from src.utils.config import Config, DEFAULT_CONFIG
 from src.utils.visualization import PerformanceVisualizer
+from src.utils.explainability import DecisionExplainer
 
 logger = logging.getLogger(__name__)
 
@@ -126,16 +127,24 @@ class EvaluationRunner:
         metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         return rewards, temps, powers, metrics
 
-    def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
+    def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict]]:
         print("\n🤖 Evaluating SCARI-v2 Model...")
         obs = self.env.reset()
+        explainer = DecisionExplainer(max_history=num_steps)
             
         rewards, temps, powers = [], [], []
         it_powers, cooling_powers, healths, all_actions = [], [], [], []
+        decisions_log = []
         violations = 0
        
-        for _ in tqdm(range(num_steps), desc="Model"):
+        for step in tqdm(range(num_steps), desc="Model"):
             action, _ = model.predict(obs, deterministic=True)
+            
+            # Capture explanation every 50 steps to avoid massive overhead
+            if step % 50 == 0:
+                explanation = explainer.explain_action(obs, action[0], step)
+                decisions_log.append(explanation)
+            
             obs, reward, done, info = self.env.step(action)
             
             rewards.append(reward[0])
@@ -150,7 +159,7 @@ class EvaluationRunner:
                 violations += 1
         
         metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
-        return rewards, temps, powers, metrics
+        return rewards, temps, powers, metrics, decisions_log
     
     def _compute_metrics(self, rewards, temps, powers, it_powers, cooling_powers, healths, actions, violations) -> EvaluationMetrics:
         powers_array = np.array(powers)
@@ -209,14 +218,15 @@ def run_evaluation():
     
     runner = EvaluationRunner(cfg, env)
     b_rewards, b_temps, b_powers, b_metrics = runner.evaluate_baseline(args.steps)
-    m_rewards, m_temps, m_powers, m_metrics = runner.evaluate_model(trained_model, args.steps)
+    m_rewards, m_temps, m_powers, m_metrics, m_decisions = runner.evaluate_model(trained_model, args.steps)
     
     # Save results
     metrics_path = output_dir / 'metrics.json'
     with open(metrics_path, 'w') as f:
         json.dump({
             'baseline': b_metrics.to_dict(),
-            'scari_v2': m_metrics.to_dict()
+            'scari_v2': m_metrics.to_dict(),
+            'decisions': m_decisions
         }, f, indent=4)
     
     # Generate visualization

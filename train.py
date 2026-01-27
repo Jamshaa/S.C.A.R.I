@@ -28,6 +28,7 @@ def run_training():
     parser.add_argument('--log-dir', type=str, default='logs/tb', help='Tensorboard log directory')
     parser.add_argument('--device', type=str, default='auto', help='cpu or cuda')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--profile', type=str, default='BALANCED', choices=['BALANCED', 'PRODUCTION_SAFE', 'MAX_EFFICIENCY'], help='Reward profile')
     
     args = parser.parse_args()
     
@@ -49,14 +50,18 @@ def run_training():
         cfg = Config.from_yaml(config_path) if config_path.exists() else DEFAULT_CONFIG
         if args.timesteps:
             cfg.training.timesteps = args.timesteps
+        if args.profile:
+            cfg.reward.profile = args.profile
     except Exception as e:
         logger.error(f"Failed to load config: {e}. Falling back to default.")
         cfg = DEFAULT_CONFIG
+        cfg.reward.profile = args.profile # Ensure profile is set even if config fails
 
     print(f"\n📂 Environment Setup:")
     print(f"   - Config: {args.config}")
     print(f"   - Models: {model_dir}")
     print(f"   - Logs:   {log_dir}")
+    print(f"   - Profile: {cfg.reward.profile}")
     
     # Environment creation
     def make_env():

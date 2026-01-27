@@ -27,6 +27,12 @@ class DecisionExplainer:
         Returns:
             Dictionary with reasoning, feature importance, and confidence
         """
+        # Handle VecEnv shapes (1, N) -> (N,)
+        if len(observation.shape) > 1:
+            observation = observation.flatten()
+        if len(action.shape) > 1:
+            action = action.flatten()
+            
         num_servers = len(action)
         temps = observation[:num_servers]
         loads = observation[num_servers:]
