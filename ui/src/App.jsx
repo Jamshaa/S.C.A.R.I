@@ -24,6 +24,7 @@ const App = () => {
   const [results, setResults] = useState(null);
   const [trainingSteps, setTrainingSteps] = useState(25000);
   const [evalSteps, setEvalSteps] = useState(5000);
+  const [evalLog, setEvalLog] = useState('');
   const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
@@ -55,6 +56,11 @@ const App = () => {
       const data = await res.json();
       setIsTraining(data.is_training);
       if (data.is_training) setLastLog(data.last_log);
+      
+      const evalRes = await fetch(`${API_BASE}/evaluation-status`);
+      const evalData = await evalRes.json();
+      setIsEvaluating(evalData.is_evaluating);
+      if (evalData.is_evaluating) setEvalLog(evalData.last_log);
     } catch (e) { }
   };
 
@@ -80,18 +86,38 @@ const App = () => {
     }
     setIsEvaluating(true);
     addToast(`Analysing ${selectedModel}...`, 'success');
+    
     try {
-      const evalRes = await fetch(`${API_BASE}/evaluate?model_name=${selectedModel}&steps=${evalSteps}`, { method: 'POST' });
-      if (!evalRes.ok) throw new Error(await evalRes.text());
+      const startRes = await fetch(`${API_BASE}/evaluate?model_name=${selectedModel}&steps=${evalSteps}`, { method: 'POST' });
+      if (!startRes.ok) throw new Error(await startRes.text());
       
-      const res = await fetch(`${API_BASE}/results`);
-      const data = await res.json();
-      setResults(data);
-      addToast('Evaluation complete. dashboard updated.', 'success');
+      // Polling for results
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`${API_BASE}/evaluation-status`);
+          const statusData = await statusRes.json();
+          
+          if (statusData.error) {
+            clearInterval(pollInterval);
+            setIsEvaluating(false);
+            addToast(`Evaluation failed: ${statusData.error}`, 'error');
+          } else if (!statusData.is_evaluating && statusData.has_result) {
+            clearInterval(pollInterval);
+            setIsEvaluating(false);
+            
+            const resultsRes = await fetch(`${API_BASE}/results`);
+            const resultsData = await resultsRes.json();
+            setResults(resultsData);
+            addToast('Evaluation complete. dashboard updated.', 'success');
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      }, 2000);
+
     } catch (e) {
-      addToast('Evaluation failed. Check API logs.', 'error');
+      addToast('Evaluation failed to start.', 'error');
       console.error(e);
-    } finally {
       setIsEvaluating(false);
     }
   };
@@ -214,10 +240,10 @@ const App = () => {
           </div>
         </header>
 
-        {isTraining && (
+        {(isTraining || isEvaluating) && (
           <div className="card animate-fade-in" style={{ borderColor: 'var(--accent-primary)', background: 'rgba(168, 218, 220, 0.03)' }}>
             <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Terminal size={16} /> Real-time Telemetry
+              <Terminal size={16} /> Real-time Telemetry {isEvaluating && '(Evaluation)'}
             </h3>
             <div style={{ 
               background: '#05070a', 
@@ -230,7 +256,7 @@ const App = () => {
               maxHeight: '120px',
               overflowY: 'auto'
             }}>
-              {lastLog || 'Initializing compute kernels...'}
+              {isEvaluating ? (evalLog || 'Starting evaluation sequence...') : (lastLog || 'Initializing compute kernels...')}
             </div>
           </div>
         )}
@@ -238,15 +264,29 @@ const App = () => {
         {/* Metrics Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
           {[
-            { label: 'Energy Savings', value: `${results?.metrics?.scari_v2?.power_efficiency.toFixed(1) || '0.0'}%`, icon: Activity, color: 'var(--success)', delay: '0.3s' },
-            { label: 'Thermal PUE', value: results?.metrics?.scari_v2?.average_pue.toFixed(3) || '1.092', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s' },
-            { label: 'Avg Thermal Load', value: `${results?.metrics?.scari_v2?.average_temperature.toFixed(1) || '0.0'}°C`, icon: Thermometer, color: 'var(--warning)', delay: '0.5s' },
             { 
-              label: 'Infrastructure Health', 
-              value: results ? (results.metrics.scari_v2.safety_violations === 0 ? 'OPTIMIZED' : 'OVERHEAT') : 'STANDBY', 
+              label: 'Energy Savings', 
+              value: results ? `${(((results.metrics.baseline.total_power_consumption - results.metrics.scari_v2.total_power_consumption) / results.metrics.baseline.total_power_consumption) * 100).toFixed(1)}%` : '0.0%',
+              icon: Activity, 
+              color: 'var(--success)', 
+              delay: '0.3s'
+            },
+            { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari_v2?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
+            { 
+              label: 'Average Temperature', 
+              value: `${results?.metrics?.scari_v2?.average_temperature.toFixed(1) || '0.0'}°C`, 
+              icon: Thermometer, 
+              color: results ? (results.metrics.scari_v2.average_temperature < 55 ? 'var(--success)' : results.metrics.scari_v2.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
+              delay: '0.5s',
+              subtitle: 'Target: 45-55°C'
+            },
+            { 
+              label: 'Safety Status', 
+              value: results ? (results.metrics.scari_v2.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari_v2.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
               icon: ShieldCheck, 
-              color: results?.metrics?.scari_v2?.safety_violations === 0 ? 'var(--success)' : (results ? 'var(--danger)' : 'var(--text-secondary)'),
-              delay: '0.6s' 
+              color: results ? (results.metrics.scari_v2.safety_violations < 5 ? 'var(--success)' : results.metrics.scari_v2.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
+              delay: '0.6s',
+              subtitle: results ? `${results.metrics.scari_v2.safety_violations} overtemp events` : null
             }
           ].map((metric, i) => (
             <div key={i} className="card animate-fade-in" style={{ animationDelay: metric.delay }}>
@@ -257,23 +297,43 @@ const App = () => {
                 </span>
                 <metric.icon size={18} color={metric.color} style={{ opacity: 0.8 }} />
               </div>
+              {metric.subtitle && (
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                  {metric.subtitle}
+                </p>
+              )}
             </div>
           ))}
         </div>
 
         {/* Main Analytics Area */}
-        <section className="card animate-fade-in" style={{ animationDelay: '0.7s', minHeight: '500px', display: 'flex', flexDirection: 'column' }}>
+        <section className="card animate-fade-in" style={{ animationDelay: '0.7s', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">
              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.1rem' }}>
-                <BarChart3 size={20} /> Advanced Thermal Analytics
+                <BarChart3 size={20} /> Performance Comparison Charts
              </h3>
              <div style={{ display: 'flex', gap: '0.8rem' }}>
-                <button className="btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.75rem' }}>Report Export</button>
-                <button className="btn-outline" style={{ padding: '0.5rem', borderRadius: '8px' }}><Download size={14} /></button>
+                {results?.images?.length > 0 && (
+                  <button 
+                    className="btn-outline" 
+                    style={{ padding: '0.5rem 1rem', fontSize: '0.75rem' }}
+                    onClick={() => {
+                      results.images.forEach((img, i) => {
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE}${img}`;
+                        link.download = `scari_chart_${i+1}.png`;
+                        link.click();
+                      });
+                      addToast('Charts downloaded', 'success');
+                    }}
+                  >
+                    Download All Charts
+                  </button>
+                )}
              </div>
           </div>
           
-          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', padding: '1rem 0' }}>
              {isEvaluating ? (
                <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem' }}>
                   <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.5rem' }}></div>

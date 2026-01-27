@@ -137,39 +137,40 @@ class DataCenterEnv(gym.Env):
     
     def _calculate_reward(self, stats: List[Dict[str, float]], actions: np.ndarray) -> float:
         """
-        Refined Reward Function for SCARI-v2.
-        Strongly encourages energy saving without compromising hardware health.
+        REALISTIC Reward Function for SCARI.
+        Balances energy efficiency with thermal safety for production-grade operation.
+        Target: 20-30% savings with safe 45-55°C operation.
         """
         it_power = sum(s['it_power'] for s in stats)
         cooling_power = sum(s['cooling_power'] for s in stats)
         total_power = it_power + cooling_power
         
-        # 1. PUE Multiplier (Target < 1.05)
+        # 1. PUE Reward (Target < 1.15 for realistic efficiency)
         pue = total_power / (it_power + 1e-6)
-        pue_reward = 100.0 * max(0, 1.10 - pue)
+        pue_reward = 80.0 * max(0, 1.15 - pue)
         
-        # 2. Thermal Efficiency (operating at efficient 50-60C range)
+        # 2. Thermal Efficiency (REALISTIC target at 45°C for safe operation)
         avg_temp = np.mean([s['temp'] for s in stats])
-        # Gaussian target at 55C
-        thermal_reward = 500.0 * np.exp(-0.01 * (avg_temp - 55.0)**2)
+        # Gaussian target centered at 45°C (industry efficient range)
+        thermal_reward = 400.0 * np.exp(-0.015 * (avg_temp - 45.0)**2)
         
         # 3. Penalties
-        # Critical overheating
+        # STRICT safety penalty at 70°C (well before hardware risk)
         max_temp = np.max([s['temp'] for s in stats])
         safety_penalty = 0.0
-        if max_temp > self.config.reward.safety_limit:
-             safety_penalty = 100.0 * (max_temp - self.config.reward.safety_limit)**2
-             
-        # Large cooling action penalty (encourage passive cooling)
-        cooling_action_penalty = 200.0 * np.mean(actions)**2
+        if max_temp > 70.0:
+            safety_penalty = 500.0 * (max_temp - 70.0)**2
         
-        # Health loss penalty
+        # Moderate cooling action penalty (encourage efficiency but allow necessary cooling)
+        cooling_action_penalty = 100.0 * np.mean(actions)**2
+        
+        # INCREASED health penalty (hardware longevity is critical)
         avg_health = np.mean([s['health'] for s in stats])
-        health_penalty = 1000.0 * (1.0 - avg_health)
+        health_penalty = 2000.0 * (1.0 - avg_health)
         
         reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty
         
-        # Episode failure
+        # Episode failure (emergency shutdown temperature)
         if max_temp >= self.config.physics.max_temp:
             reward -= 5000.0
             

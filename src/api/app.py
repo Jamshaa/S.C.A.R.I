@@ -52,7 +52,14 @@ class TrainingStatus:
     progress = 0
     last_log = ""
 
+class EvaluationStatus:
+    is_evaluating = False
+    last_log = ""
+    error = ""
+    result = None
+
 status = TrainingStatus()
+eval_status = EvaluationStatus()
 
 @app.get("/models")
 async def get_models():
@@ -77,13 +84,20 @@ def run_train_task(params: TrainingParams):
             "--timesteps", str(params.timesteps),
             "--config", params.config
         ]
+        
+        # Set UTF-8 encoding for Windows
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        
         # Run process
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            cwd=str(BASE_DIR)
+            encoding="utf-8",
+            cwd=str(BASE_DIR),
+            env=env
         )
         for line in process.stdout:
             status.last_log = line.strip()
@@ -109,14 +123,11 @@ async def get_status():
         "last_log": status.last_log
     }
 
-@app.post("/evaluate")
-async def run_evaluation(model_name: str, steps: int = 5000):
-    """Run evaluation for a specific model."""
-    model_path = MODELS_DIR / model_name
-    if not model_path.exists():
-        raise HTTPException(status_code=404, detail="Model not found")
-    
-    print(f"DEBUG: Evaluating {model_name} for {steps} steps")
+def run_eval_task(model_path: Path, steps: int, output_dir: Path):
+    global eval_status
+    eval_status.is_evaluating = True
+    eval_status.error = ""
+    eval_status.result = None
     
     venv_python = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
     if not os.path.exists(venv_python):
@@ -125,17 +136,63 @@ async def run_evaluation(model_name: str, steps: int = 5000):
     cmd = [
         venv_python, "evaluate.py",
         "--model", str(model_path),
-        "--output", str(OUTPUTS_DIR),
+        "--output", str(output_dir),
         "--steps", str(steps)
     ]
     
     try:
-        # We run it synchronously as it usually takes ~5-10 seconds for 5000 steps
-        result = subprocess.run(cmd, check=True, cwd=str(BASE_DIR), capture_output=True, text=True)
-        return {"message": "Evaluation successful", "output": result.stdout}
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR: {e.stdout}\n{e.stderr}")
-        raise HTTPException(status_code=500, detail=f"Evaluation failed: {e.stderr or e.stdout}")
+        # Set UTF-8 encoding for Windows
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            cwd=str(BASE_DIR),
+            env=env
+        )
+        for line in process.stdout:
+            eval_status.last_log = line.strip()
+            
+        process.wait()
+        if process.returncode == 0:
+            # Load results
+            metrics_path = output_dir / "metrics.json"
+            if metrics_path.exists():
+                with open(metrics_path, "r") as f:
+                    eval_status.result = json.load(f)
+        else:
+            eval_status.error = f"Evaluation process exited with code {process.returncode}"
+    except Exception as e:
+        eval_status.error = str(e)
+    finally:
+        eval_status.is_evaluating = False
+
+@app.post("/evaluate")
+async def run_evaluation(model_name: str, background_tasks: BackgroundTasks, steps: int = 5000):
+    """Run evaluation for a specific model in background."""
+    model_path = MODELS_DIR / model_name
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    if eval_status.is_evaluating:
+        raise HTTPException(status_code=400, detail="Evaluation already in progress")
+    
+    background_tasks.add_task(run_eval_task, model_path, steps, OUTPUTS_DIR)
+    return {"message": "Evaluation started"}
+
+@app.get("/evaluation-status")
+async def get_evaluation_status():
+    """Get the current evaluation status."""
+    return {
+        "is_evaluating": eval_status.is_evaluating,
+        "last_log": eval_status.last_log,
+        "error": eval_status.error,
+        "has_result": eval_status.result is not None
+    }
 
 @app.get("/results")
 async def get_results():
@@ -156,6 +213,12 @@ async def get_results():
         "metrics": metrics,
         "images": images
     }
+
+@app.get("/explain")
+async def get_explanations():
+    """Get decision explanations for demo."""
+    from src.api.sample_decisions import SAMPLE_DECISIONS
+    return {"decisions": SAMPLE_DECISIONS}
 
 if __name__ == "__main__":
     import uvicorn

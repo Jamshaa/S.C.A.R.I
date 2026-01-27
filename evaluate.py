@@ -44,15 +44,15 @@ class EvaluationMetrics:
         return asdict(self)
 
 class BaselineController:
-    """Conservative PID-based baseline controller representing legacy operations."""
+    """Realistic PID-based baseline controller representing modern datacenter operations."""
     
-    def __init__(self, target_temp: float = 25.0):
-        self.target_temp = target_temp
+    def __init__(self, target_temp: float = 30.0):
+        self.target_temp = target_temp  # Industry standard: 27-32°C
         self.prev_error = 0.0
         self.integral = 0.0
     
     def compute_action(self, temps: np.ndarray, num_servers: int) -> np.ndarray:
-        """Compute legacy PID-based cooling action (over-cooling)."""
+        """Compute realistic PID-based cooling action."""
         max_temp = np.max(temps)
         error = max_temp - self.target_temp
         
@@ -64,8 +64,8 @@ class BaselineController:
         self.prev_error = error
         
         fan_speed = kp * error + ki * self.integral + kd * derivative
-        # Legacy hardware: high min speed (conservative safety)
-        fan_speed = np.clip(0.6 + fan_speed, 0.6, 1.0)
+        # Modern datacenter: 40% minimum for airflow, up to 100% max
+        fan_speed = np.clip(0.4 + fan_speed, 0.4, 1.0)
         
         return np.ones(num_servers) * fan_speed
     
