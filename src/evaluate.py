@@ -239,7 +239,7 @@ def run_evaluation():
     with open(metrics_path, 'w') as f:
         json.dump({
             'baseline': b_metrics.to_dict(),
-            'scari_v2': m_metrics.to_dict(),
+            'scari': m_metrics.to_dict(),
             'decisions': m_decisions
         }, f, indent=4)
     

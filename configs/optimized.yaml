@@ -19,21 +19,21 @@ cooling:
 
 reward:
   # Aggressive energy optimization
-  energy_coefficient: 30.0  # Even stronger energy focus
-  safe_threshold: 65.0  # Allow higher temps
-  critical_limit: 90.0
-  thermal_penalty_coefficient: 20.0
-  emergency_penalty: 150.0
+  energy_coefficient: 15.0 # Even stronger energy focus
+  safe_threshold: 55.0 # Allow higher temps
+  critical_limit: 85.0
+  thermal_penalty_coefficient: 80.0
+  emergency_penalty: 500.0
   energy_efficiency_bonus: 10.0
 
 training:
-  timesteps: 1000000  # 1M steps for solid convergence
-  learning_rate: 0.00008  # Slightly lower for stability
-  n_steps: 8192  # Large rollout buffer
+  timesteps: 1000000 # 1M steps for solid convergence
+  learning_rate: 0.00008 # Slightly lower for stability
+  n_steps: 8192 # Large rollout buffer
   batch_size: 256
-  gamma: 0.9998  # Very high discount for long-term energy savings
+  gamma: 0.9998 # Very high discount for long-term energy savings
   gae_lambda: 0.98
-  ent_coef: 0.008  # More exploration for better policies
+  ent_coef: 0.008 # More exploration for better policies
   vf_coef: 0.5
   max_grad_norm: 0.5
   n_epochs: 15
@@ -44,8 +44,8 @@ training:
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_load_change_per_step: 0.10  # More dynamic workload
-  min_initial_load: 0.4  # Realistic DC load range
-  max_initial_load: 0.95  # High utilization
-  load_std: 0.15  # Significant workload variation
-  episode_length: 2500  # Longer episodes for better learning
+  max_load_change_per_step: 0.10 # More dynamic workload
+  min_initial_load: 0.4 # Realistic DC load range
+  max_initial_load: 0.95 # High utilization
+  load_std: 0.15 # Significant workload variation
+  episode_length: 2500 # Longer episodes for better learning

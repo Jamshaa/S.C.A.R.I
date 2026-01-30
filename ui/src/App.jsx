@@ -209,22 +209,23 @@ const App = () => {
       
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="card animate-fade-in" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ background: 'var(--accent-primary)', padding: '0.6rem', borderRadius: '12px' }}>
-              <Cpu size={28} color="#1d3557" />
+            <div className="pulse" style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary))', padding: '0.6rem', borderRadius: '12px', boxShadow: '0 0 20px var(--accent-glow)' }}>
+              <Cpu size={24} color="#000" />
             </div>
             <div>
-              <h1 className="title-gradient" style={{ fontSize: '1.4rem', lineHeight: 1 }}>S.C.A.R.I</h1>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>AI THERMAL CONTROL v2.2</p>
+              <h1 className="title-gradient" style={{ fontSize: '1.5rem', lineHeight: 1 }}>S.C.A.R.I</h1>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px', letterSpacing: '0.1em' }}>ENTERPRISE AI CONTROL</p>
             </div>
           </div>
           <button 
             onClick={toggleTheme} 
-            style={{ background: 'transparent', padding: '0.5rem', marginLeft: 'auto' }}
+            className="btn-outline"
+            style={{ padding: '0.5rem', border: 'none', background: 'transparent' }}
             title="Toggle Theme"
           >
-            {theme === 'dark' ? <Sun size={20} color="var(--text-secondary)" /> : <Moon size={20} color="var(--text-secondary)" />}
+            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
           </button>
         </div>
 
@@ -279,11 +280,12 @@ const App = () => {
               <div 
                 key={m} 
                 className="group"
+                onClick={() => setSelectedModel(m)}
                 style={{ 
-                  padding: '0.9rem', 
-                  borderRadius: '10px', 
-                  background: selectedModel === m ? 'rgba(168, 218, 220, 0.08)' : 'rgba(255,255,255,0.02)',
-                  border: `1px solid ${selectedModel === m ? 'var(--accent-primary)' : 'var(--glass-border)'}`,
+                  padding: '1rem', 
+                  borderRadius: '12px', 
+                  background: selectedModel === m ? 'linear-gradient(90deg, rgba(0, 243, 255, 0.1), transparent)' : 'transparent',
+                  border: `1px solid ${selectedModel === m ? 'var(--accent-primary)' : 'transparent'}`,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -292,18 +294,18 @@ const App = () => {
                   position: 'relative'
                 }}
               >
-                <div onClick={() => setSelectedModel(m)} style={{ flex: 1, overflow: 'hidden' }}>
-                    <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{m}</span>
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: selectedModel === m ? 'var(--accent-primary)' : 'var(--text-muted)' }} />
+                    <span style={{ fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', color: selectedModel === m ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{m}</span>
                 </div>
                 
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                    <Edit2 
                       size={14} 
                       className="edit-icon"
-                      style={{ opacity: 0.5, cursor: 'pointer' }}
+                      style={{ opacity: 0.5, cursor: 'pointer', color: 'var(--text-secondary)' }}
                       onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
                    />
-                   {selectedModel === m && <ChevronRight size={14} color="var(--accent-primary)" />}
                 </div>
               </div>
             ))}
@@ -335,12 +337,15 @@ const App = () => {
       <main className="main-content">
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h2 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Production Infrastructure</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Deep Reinforcement Learning Thermal Management Dashboard</p>
+            <h2 className="title-gradient" style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>Mission Control</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+               <Activity size={16} color="var(--accent-secondary)" />
+               Real-time Telemetry & Neural Policy Management
+            </p>
           </div>
-          <div className={`status-badge ${isTraining ? 'active' : 'idle'}`}>
-             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
-             {isTraining ? 'Core Training Active' : 'System Standby'}
+          <div className={`status-badge ${isTraining ? 'active' : 'idle'}`} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
+             <div className={isTraining ? 'spinner' : ''} style={{ width: 8, height: 8, borderRadius: '50%', background: 'currentColor', border: isTraining ? 'none' : '' }} />
+             {isTraining ? 'NEURAL TRAINING ACTIVE' : 'SYSTEM STANDBY'}
           </div>
         </header>
 
@@ -370,27 +375,27 @@ const App = () => {
           {[
             { 
               label: 'Energy Savings', 
-              value: results ? `${(((results.metrics.baseline.total_power_consumption - results.metrics.scari_v2.total_power_consumption) / results.metrics.baseline.total_power_consumption) * 100).toFixed(1)}%` : '0.0%',
+              value: results ? `${(((results.metrics.baseline.total_power_consumption - results.metrics.scari.total_power_consumption) / results.metrics.baseline.total_power_consumption) * 100).toFixed(1)}%` : '0.0%',
               icon: Activity, 
               color: 'var(--success)', 
               delay: '0.3s'
             },
-            { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari_v2?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
+            { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
             { 
               label: 'Average Temperature', 
-              value: `${results?.metrics?.scari_v2?.average_temperature.toFixed(1) || '0.0'}°C`, 
+              value: `${results?.metrics?.scari?.average_temperature.toFixed(1) || '0.0'}°C`, 
               icon: Thermometer, 
-              color: results ? (results.metrics.scari_v2.average_temperature < 55 ? 'var(--success)' : results.metrics.scari_v2.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
+              color: results ? (results.metrics.scari.average_temperature < 55 ? 'var(--success)' : results.metrics.scari.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
               delay: '0.5s',
               subtitle: 'Target: 45-55°C'
             },
             { 
               label: 'Safety Status', 
-              value: results ? (results.metrics.scari_v2.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari_v2.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
+              value: results ? (results.metrics.scari.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
               icon: ShieldCheck, 
-              color: results ? (results.metrics.scari_v2.safety_violations < 5 ? 'var(--success)' : results.metrics.scari_v2.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
+              color: results ? (results.metrics.scari.safety_violations < 5 ? 'var(--success)' : results.metrics.scari.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
               delay: '0.6s',
-              subtitle: results ? `${results.metrics.scari_v2.safety_violations} overtemp events` : null
+              subtitle: results ? `${results.metrics.scari.safety_violations} overtemp events` : null
             }
           ].map((metric, i) => (
             <div key={i} className="card animate-fade-in" style={{ animationDelay: metric.delay }}>

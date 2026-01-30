@@ -110,7 +110,7 @@ def run_training():
     checkpoint_callback = CheckpointCallback(
         save_freq=max(1000, cfg.training.timesteps // 10),
         save_path=str(model_dir),
-        name_prefix='scari_v2'
+        name_prefix='scari'
     )
     
     print(f"\n🚀 Training started for {cfg.training.timesteps:,} steps...")
@@ -122,18 +122,18 @@ def run_training():
         )
         print("\n✅ Training complete!")
         # Save final model heavily distinct from emergency saves
-        model.save(model_dir / "scari_v2_final")
+        model.save(model_dir / "scari_final")
         
     except KeyboardInterrupt:
         print("\n⚠️  Training interrupted manually.")
-        model.save(model_dir / "scari_v2_interrupted")
-        print(f"💾 Emergency checkpoint saved to {model_dir / 'scari_v2_interrupted'}")
+        model.save(model_dir / "scari_crash_dump")
+        print(f"💾 Crash dump saved to {model_dir / 'scari_crash_dump'}")
         
     except Exception as e:
         logger.error(f"Training crashed: {e}", exc_info=True)
-        model.save(model_dir / "scari_v2_crash_dump")
+        model.save(model_dir / "scari_crash_dump")
         print(f"\n🔥 CRITICAL ERROR: {e}")
-        print(f"💾 Crash dump saved to {model_dir / 'scari_v2_crash_dump'}")
+        print(f"💾 Crash dump saved to {model_dir / 'scari_crash_dump'}")
         raise e
         
     finally:

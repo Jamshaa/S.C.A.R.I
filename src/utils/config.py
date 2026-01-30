@@ -44,9 +44,14 @@ class RewardConfig:
     safety_weight: float = 2.0
     stability_weight: float = 0.2
     profile: str = "BALANCED"  # Options: MAX_EFFICIENCY, PRODUCTION_SAFE, BALANCED
-    # Keep legacy names as optional or defaults if needed for compatibility
+    
+    # Advanced / Optimization keys
     energy_coefficient: float = 15.0
     thermal_penalty_coefficient: float = 10.0
+    safe_threshold: float = 65.0
+    critical_limit: float = 85.0
+    emergency_penalty: float = 150.0
+    energy_efficiency_bonus: float = 10.0
 
 @dataclass
 class TrainingConfig:
