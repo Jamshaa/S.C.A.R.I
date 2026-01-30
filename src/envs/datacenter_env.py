@@ -36,7 +36,7 @@ class DataCenterEnv(gym.Env):
         self.step_count = 0
         self.episode_count = 0
         
-        # SCARI-v2: Normalized observation space [0, 1]
+        # SCARI: Normalized observation space [0, 1]
         # [Normalized Temps, Loads, Health]
         self.observation_space = spaces.Box(
             low=0.0, high=1.0,
@@ -101,8 +101,8 @@ class DataCenterEnv(gym.Env):
         temps = self.rack.get_temperatures()
         max_temp = np.max(temps)
         
-        terminated = max_temp >= self.config.physics.max_temp
-        truncated = self.step_count >= self.config.environment.max_steps
+        terminated = bool(max_temp >= self.config.physics.max_temp)
+        truncated = bool(self.step_count >= self.config.environment.max_steps)
         
         self.episode_rewards.append(reward)
         self.episode_temps.append(max_temp)
@@ -134,6 +134,18 @@ class DataCenterEnv(gym.Env):
         
         # Loads and Health are already roughly [0, 1]
         return np.concatenate([norm_temps, loads, health]).astype(np.float32)
+
+    def get_raw_observations(self) -> Dict[str, np.ndarray]:
+        """
+        Return raw, un-normalized observations for analysis or legacy controllers.
+        """
+        return {
+            'temps': self.rack.get_temperatures(),
+            'loads': self.current_loads.copy(),
+            'health': np.array([s.health for s in self.rack.servers]),
+            'power': self.rack.get_total_power()
+        }
+
     
     def _calculate_reward(self, stats: List[Dict[str, Any]], actions: np.ndarray) -> float:
         """

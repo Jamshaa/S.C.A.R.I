@@ -3,13 +3,28 @@ import {
   Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
   Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
   Download, AlertCircle, CheckCircle2, Loader2, Info,
-  Brain, MessageSquare, History, BarChart
+  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
 
+const fetchWithRetry = async (url, options = {}, retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+      // If 4xx error (client side), do not retry
+      if (res.status >= 400 && res.status < 500) throw new Error(await res.text());
+      throw new Error(`Request failed: ${res.status}`); 
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1))); 
+    }
+  }
+};
+
 // Simple Toast Component
-const Toast = ({ message, type, onClose }) => (
+const Toast = ({ message, type }) => (
   <div className={`toast animate-fade-in ${type}`}>
     {type === 'success' ? <CheckCircle2 size={20} color="var(--success)" /> : <AlertCircle size={20} color="var(--danger)" />}
     <span style={{ fontSize: '0.9rem' }}>{message}</span>
@@ -28,11 +43,23 @@ const App = () => {
   const [evalLog, setEvalLog] = useState('');
   const [toasts, setToasts] = useState([]);
   const [selectedDecision, setSelectedDecision] = useState(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameTarget, setRenameTarget] = useState('');
+  const [newName, setNewName] = useState('');
+  const [theme, setTheme] = useState('dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+
 
   useEffect(() => {
     fetchModels();
     const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addToast = (message, type = 'success') => {
@@ -43,12 +70,13 @@ const App = () => {
 
   const fetchModels = async () => {
     try {
-      const res = await fetch(`${API_BASE}/models`);
+      const res = await fetchWithRetry(`${API_BASE}/models`);
       const data = await res.json();
       setModels(data.models);
       if (data.models.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
     } catch (e) {
       console.error('Error fetching models', e);
+      addToast('Failed to connect to backend', 'error');
     }
   };
 
@@ -63,7 +91,11 @@ const App = () => {
       const evalData = await evalRes.json();
       setIsEvaluating(evalData.is_evaluating);
       if (evalData.is_evaluating) setEvalLog(evalData.last_log);
-    } catch (e) { }
+      if (evalData.is_evaluating) setEvalLog(evalData.last_log);
+    } catch (e) { 
+      // Silent failure for status polling
+      console.debug("Status poll failed", e);
+    }
   };
 
   const handleTrain = async () => {
@@ -127,18 +159,73 @@ const App = () => {
     }
   };
 
+  const handleRename = async () => {
+    if (!newName.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/models/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_name: renameTarget, new_name: newName })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      
+      addToast('Model renamed successfully', 'success');
+      setModels(prev => prev.map(m => m === renameTarget ? (newName.endsWith('.zip') ? newName : `${newName}.zip`) : m));
+      if (selectedModel === renameTarget) setSelectedModel(newName.endsWith('.zip') ? newName : `${newName}.zip`);
+      setIsRenaming(false);
+      setNewName('');
+    } catch (e) {
+      addToast(e.message || 'Rename failed', 'error');
+    }
+  };
+
   return (
     <div className="app-container">
+      {/* Rename Modal */}
+      {isRenaming && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div className="card animate-fade-in" style={{ width: '400px', padding: '2rem', border: '1px solid var(--accent-primary)' }}>
+            <h3 style={{ marginBottom: '1rem' }}>Rename Model</h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Renaming {renameTarget}
+            </p>
+            <input 
+              className="input-field" 
+              value={newName} 
+              onChange={e => setNewName(e.target.value)}
+              placeholder="New model name..."
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn-outline" onClick={() => setIsRenaming(false)}>Cancel</button>
+              <button className="btn-primary" onClick={handleRename}>Confirm Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="card animate-fade-in" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ background: 'var(--accent-primary)', padding: '0.6rem', borderRadius: '12px' }}>
-            <Cpu size={28} color="#1d3557" />
+        <div className="card animate-fade-in" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--accent-primary)', padding: '0.6rem', borderRadius: '12px' }}>
+              <Cpu size={28} color="#1d3557" />
+            </div>
+            <div>
+              <h1 className="title-gradient" style={{ fontSize: '1.4rem', lineHeight: 1 }}>S.C.A.R.I</h1>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>AI THERMAL CONTROL v2.2</p>
+            </div>
           </div>
-          <div>
-            <h1 className="title-gradient" style={{ fontSize: '1.4rem', lineHeight: 1 }}>S.C.A.R.I</h1>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>AI THERMAL CONTROL v2.1</p>
-          </div>
+          <button 
+            onClick={toggleTheme} 
+            style={{ background: 'transparent', padding: '0.5rem', marginLeft: 'auto' }}
+            title="Toggle Theme"
+          >
+            {theme === 'dark' ? <Sun size={20} color="var(--text-secondary)" /> : <Moon size={20} color="var(--text-secondary)" />}
+          </button>
         </div>
 
         {/* Training Panel */}
@@ -191,7 +278,7 @@ const App = () => {
             {models.map(m => (
               <div 
                 key={m} 
-                onClick={() => setSelectedModel(m)}
+                className="group"
                 style={{ 
                   padding: '0.9rem', 
                   borderRadius: '10px', 
@@ -201,11 +288,23 @@ const App = () => {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  position: 'relative'
                 }}
               >
-                <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m}</span>
-                {selectedModel === m && <ChevronRight size={14} color="var(--accent-primary)" />}
+                <div onClick={() => setSelectedModel(m)} style={{ flex: 1, overflow: 'hidden' }}>
+                    <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{m}</span>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                   <Edit2 
+                      size={14} 
+                      className="edit-icon"
+                      style={{ opacity: 0.5, cursor: 'pointer' }}
+                      onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
+                   />
+                   {selectedModel === m && <ChevronRight size={14} color="var(--accent-primary)" />}
+                </div>
               </div>
             ))}
           </div>

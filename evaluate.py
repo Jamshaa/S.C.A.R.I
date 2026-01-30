@@ -44,6 +44,10 @@ class EvaluationMetrics:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+# Base paths calculation
+BASE_DIR = Path(__file__).resolve().parent
+
+
 class BaselineController:
     """Realistic PID-based baseline controller representing modern datacenter operations."""
     
@@ -75,7 +79,7 @@ class BaselineController:
         self.integral = 0.0
 
 class EvaluationRunner:
-    """Runs evaluation episodes and collects metrics for SCARI-v2."""
+    """Runs evaluation episodes and collects metrics for SCARI."""
     
     def __init__(self, config: Config, env: Any):
         self.config = config
@@ -95,22 +99,27 @@ class EvaluationRunner:
         it_powers, cooling_powers, healths, all_actions = [], [], [], []
         violations = 0
         
+        # Initialize action based on initial/ambient temps
+        # Assume ambient temp start if no info yet
+        initial_temps = np.ones(self.num_servers) * self.config.physics.ambient_temp
+        action = self.baseline.compute_action(initial_temps, self.num_servers)
+
         for _ in tqdm(range(num_steps), desc="Baseline"):
-            # Observations for Baseline are un-normalized (from env internally or slice them)
-            # In SCARI-v2 env returns normalized, so we might need a way to get raw temps
-            # OR we assuming baseline sees normalized too? Legacy doesn't.
-            # For simplicity in this sim, we use the raw values if env provides them in info
-            # or we reverse normalization. 
-            # Actually, the BaselineController here expects raw temps.
+            # Step environment with PREVIOUSLY computed action
+            # Note: env.step expects a list/array of actions, one per server usually, check dimension
+            # The baseline.compute_action returns (num_servers,) array.
+            # env.step([action]) in original code looked like it wrapped it in list?
+            # DataCenterEnv step expects `action: np.ndarray`. If it handles batch, fine. 
+            # But DummyVecEnv wraps envs, so `env.step` usually takes [action_env1, action_env2...].
+            # Since we have DummyVecEnv([make_env]), we need to pass a list of actions [action]
             
-            # Since evaluate.py is for the user, let's ensure we get metrics from info
-            action = self.baseline.compute_action(np.array([25.0]*self.num_servers), self.num_servers) # Dummy start
-            
-            # Re-stepping to get real temps from info
             obs, reward, done, info = self.env.step([action])
             
-            # Actual temps from info (reliable)
+            # Get actual temps from info to compute NEXT action
+            # We use the FIRST env's info (info[0])
             server_temps = np.array([s['temp'] for s in info[0].get('stats', [{'temp': info[0]['avg_temp']}]*self.num_servers)])
+            
+            # Compute action for NEXT step
             action = self.baseline.compute_action(server_temps, self.num_servers)
             
             rewards.append(reward[0])
@@ -128,7 +137,7 @@ class EvaluationRunner:
         return rewards, temps, powers, metrics
 
     def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict]]:
-        print("\n🤖 Evaluating SCARI-v2 Model...")
+        print("\n🤖 Evaluating SCARI Model...")
         obs = self.env.reset()
         t_min = self.config.physics.min_temp
         t_max = self.config.physics.max_temp
@@ -186,11 +195,11 @@ class EvaluationRunner:
         )
 
 def run_evaluation():
-    parser = argparse.ArgumentParser(description="SCARI-v2 Performance Evaluation")
-    parser.add_argument('--config', type=str, default='configs/default.yaml', help='Config path')
-    parser.add_argument('--model', type=str, default='data/models/scari_v2_final.zip', help='Model path')
+    parser = argparse.ArgumentParser(description="SCARI Performance Evaluation")
+    parser.add_argument('--config', type=str, default=str(BASE_DIR / 'configs/default.yaml'), help='Config path')
+    parser.add_argument('--model', type=str, default=str(BASE_DIR / 'data/models/scari_final.zip'), help='Model path')
     parser.add_argument('--steps', type=int, default=5000, help='Evaluation steps')
-    parser.add_argument('--output', type=str, default='outputs/eval', help='Output directory')
+    parser.add_argument('--output', type=str, default=str(BASE_DIR / 'outputs/eval'), help='Output directory')
     parser.add_argument('--seed', type=int, default=42, help='Seed')
     
     args = parser.parse_args()

@@ -8,14 +8,40 @@ import json
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
+import logging
+
+# Configure Structured Logging
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            "time": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "module": record.module,
+        }
+        return json.dumps(log_obj)
+
+logger = logging.getLogger("SCARI_API")
+handler = logging.StreamHandler()
+handler.setFormatter(JSONFormatter())
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 app = FastAPI(title="S.C.A.R.I API")
 
-# Enable CORS for frontend development
+# Enable CORS for specific frontend origins
+origins = [
+    "http://localhost",
+    "http://localhost:5173", # Vite
+    "http://localhost:3000", # CRA
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,6 +73,23 @@ class TrainingParams(BaseModel):
     timesteps: int = 10000
     config: str = "configs/default.yaml"
 
+    @validator('timesteps')
+    def validate_timesteps(cls, v):
+        if v < 1000 or v > 10_000_000:
+            raise ValueError("timesteps must be between 1,000 and 10,000,000")
+        return v
+
+class RenameRequest(BaseModel):
+    old_name: str
+    new_name: str
+
+    @validator('new_name')
+    def validate_name(cls, v):
+        if not v.endswith('.zip'):
+            return f"{v}.zip"
+        return v
+
+
 class TrainingStatus:
     is_training = False
     progress = 0
@@ -68,6 +111,29 @@ async def get_models():
     for f in MODELS_DIR.glob("*.zip"):
         models.append(f.name)
     return {"models": models}
+
+@app.post("/models/rename")
+async def rename_model(request: RenameRequest):
+    """Rename an existing model."""
+    old_path = MODELS_DIR / request.old_name
+    new_path = MODELS_DIR / request.new_name
+    
+    if not old_path.exists():
+        logger.warning(f"Rename failed: Model {request.old_name} not found")
+        raise HTTPException(status_code=404, detail="Model not found")
+        
+    if new_path.exists():
+        logger.warning(f"Rename failed: Target {request.new_name} already exists")
+        raise HTTPException(status_code=400, detail="New name already exists")
+    
+    try:
+        old_path.rename(new_path)
+        logger.info(f"Renamed model {request.old_name} to {request.new_name}")
+        return {"message": f"Renamed {request.old_name} to {request.new_name}", "new_name": request.new_name}
+    except Exception as e:
+        logger.error(f"Rename error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to rename: {str(e)}")
+
 
 def run_train_task(params: TrainingParams):
     global status

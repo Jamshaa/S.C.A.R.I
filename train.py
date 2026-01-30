@@ -18,14 +18,21 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("SCARI-v2")
+logger = logging.getLogger("SCARI")
 
 def run_training():
-    parser = argparse.ArgumentParser(description="SCARI-v2: Advanced Datacenter Thermal Management")
-    parser.add_argument('--config', type=str, default='configs/default.yaml', help='Path to YAML config')
+    parser = argparse.ArgumentParser(description="SCARI: Advanced Datacenter Thermal Management")
+    
+    # Path handling
+    base_dir = Path(__file__).parent
+    default_config = base_dir / 'configs/default.yaml'
+    default_models = base_dir / 'data/models'
+    default_logs = base_dir / 'logs/tb'
+    
+    parser.add_argument('--config', type=str, default=str(default_config), help='Path to YAML config')
     parser.add_argument('--timesteps', type=int, help='Override total training timesteps')
-    parser.add_argument('--model-dir', type=str, default='data/models', help='Save models here')
-    parser.add_argument('--log-dir', type=str, default='logs/tb', help='Tensorboard log directory')
+    parser.add_argument('--model-dir', type=str, default=str(default_models), help='Save models here')
+    parser.add_argument('--log-dir', type=str, default=str(default_logs), help='Tensorboard log directory')
     parser.add_argument('--device', type=str, default='auto', help='cpu or cuda')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--profile', type=str, default='BALANCED', choices=['BALANCED', 'PRODUCTION_SAFE', 'MAX_EFFICIENCY'], help='Reward profile')
@@ -41,7 +48,7 @@ def run_training():
     np.random.seed(args.seed)
     
     print("="*70)
-    print("🚀 SCARI-v2: PRODUCTION TRAINING ENGINE")
+    print("🚀 SCARI: PRODUCTION TRAINING ENGINE")
     print("="*70)
     
     # Load configuration
@@ -111,14 +118,30 @@ def run_training():
             tb_log_name='PPO_Production'
         )
         print("\n✅ Training complete!")
-    except KeyboardInterrupt:
-        print("\n⚠️  Training interrupted.")
-    finally:
-        # Save final artifacts
+        # Save final model heavily distinct from emergency saves
         model.save(model_dir / "scari_v2_final")
-        env.save(model_dir / "vec_normalize.pkl")
-        cfg.to_json(model_dir / "config.json")
-        print(f"💾 Final model and config saved to {model_dir}")
+        
+    except KeyboardInterrupt:
+        print("\n⚠️  Training interrupted manually.")
+        model.save(model_dir / "scari_v2_interrupted")
+        print(f"💾 Emergency checkpoint saved to {model_dir / 'scari_v2_interrupted'}")
+        
+    except Exception as e:
+        logger.error(f"Training crashed: {e}", exc_info=True)
+        model.save(model_dir / "scari_v2_crash_dump")
+        print(f"\n🔥 CRITICAL ERROR: {e}")
+        print(f"💾 Crash dump saved to {model_dir / 'scari_v2_crash_dump'}")
+        raise e
+        
+    finally:
+        # Always save env stats
+        try:
+            env.save(model_dir / "vec_normalize.pkl")
+            cfg.to_json(model_dir / "config.json")
+            print(f"📝 Config and Env stats saved to {model_dir}")
+        except Exception as e:
+            logger.error(f"Failed to save final artifacts: {e}")
+
 
 if __name__ == "__main__":
     run_training()
