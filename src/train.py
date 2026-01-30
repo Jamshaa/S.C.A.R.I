@@ -24,7 +24,10 @@ def run_training():
     parser = argparse.ArgumentParser(description="SCARI: Advanced Datacenter Thermal Management")
     
     # Path handling
-    base_dir = Path(__file__).parent
+    # src/train.py -> parent is src, parent.parent is root
+    base_dir = Path(__file__).parent.parent
+    
+    # Define paths
     default_config = base_dir / 'configs/default.yaml'
     default_models = base_dir / 'data/models'
     default_logs = base_dir / 'logs/tb'

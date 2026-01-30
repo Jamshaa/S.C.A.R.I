@@ -146,7 +146,7 @@ def run_train_task(params: TrainingParams):
             
         # Construct command
         cmd = [
-            venv_python, "train.py",
+            venv_python, "-m", "src.train",
             "--timesteps", str(params.timesteps),
             "--config", params.config
         ]
@@ -200,7 +200,7 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
         venv_python = "python"
 
     cmd = [
-        venv_python, "evaluate.py",
+        venv_python, "-m", "src.evaluate",
         "--model", str(model_path),
         "--output", str(output_dir),
         "--steps", str(steps)

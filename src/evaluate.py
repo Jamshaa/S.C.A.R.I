@@ -195,6 +195,9 @@ class EvaluationRunner:
         )
 
 def run_evaluation():
+    # src/evaluate.py -> parent is src, parent.parent is root
+    BASE_DIR = Path(__file__).parent.parent
+    
     parser = argparse.ArgumentParser(description="SCARI Performance Evaluation")
     parser.add_argument('--config', type=str, default=str(BASE_DIR / 'configs/default.yaml'), help='Config path')
     parser.add_argument('--model', type=str, default=str(BASE_DIR / 'data/models/scari_final.zip'), help='Model path')
