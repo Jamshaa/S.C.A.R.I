@@ -129,6 +129,7 @@ const App = () => {
       return;
     }
     setIsEvaluating(true);
+    setResults(null);
     addToast(`Analysing ${selectedModel}...`, 'success');
     
     try {
@@ -212,7 +213,7 @@ const App = () => {
         addToast(data.message || 'All models deleted', 'success');
         setModels([]);
         setSelectedModel('');
-      } catch (err) {
+      } catch {
         addToast('Failed to delete all models', 'error');
       }
     } 
@@ -224,7 +225,7 @@ const App = () => {
         addToast(`Deleted ${deleteTarget}`, 'success');
         setModels(prev => prev.filter(m => m !== deleteTarget));
         if (selectedModel === deleteTarget) setSelectedModel('');
-      } catch (err) {
+      } catch {
         addToast('Failed to delete model', 'error');
       }
     }
@@ -514,47 +515,52 @@ const App = () => {
 
         {/* Metrics Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
-          {[
-            { 
-              label: 'Energy Savings', 
-              value: results ? `${(((results.metrics.baseline.total_power_consumption - results.metrics.scari.total_power_consumption) / results.metrics.baseline.total_power_consumption) * 100).toFixed(1)}%` : '0.0%',
-              icon: Activity, 
-              color: 'var(--success)', 
-              delay: '0.3s'
-            },
-            { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
-            { 
-              label: 'Average Temperature', 
-              value: `${results?.metrics?.scari?.average_temperature.toFixed(1) || '0.0'}°C`, 
-              icon: Thermometer, 
-              color: results ? (results.metrics.scari.average_temperature < 55 ? 'var(--success)' : results.metrics.scari.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
-              delay: '0.5s',
-              subtitle: 'Target: 45-55°C'
-            },
-            { 
-              label: 'Safety Status', 
-              value: results ? (results.metrics.scari.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
-              icon: ShieldCheck, 
-              color: results ? (results.metrics.scari.safety_violations < 5 ? 'var(--success)' : results.metrics.scari.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
-              delay: '0.6s',
-              subtitle: results ? `${results.metrics.scari.safety_violations} overtemp events` : null
-            }
-          ].map((metric, i) => (
-            <div key={i} className="card animate-fade-in" style={{ animationDelay: metric.delay }}>
-              <p className="text-label">{metric.label}</p>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
-                <span style={{ fontSize: '1.8rem', fontWeight: 800, color: metric.color === 'var(--text-secondary)' ? 'var(--text-primary)' : metric.color }}>
-                  {metric.value}
-                </span>
-                <metric.icon size={18} color={metric.color} style={{ opacity: 0.8 }} />
+          {(() => {
+            const energySavings = results ? (results.metrics.baseline.total_power_consumption - results.metrics.scari.total_power_consumption) / results.metrics.baseline.total_power_consumption : 0;
+            const metricsData = [
+              { 
+                label: 'Energy Savings', 
+                value: results ? `${(energySavings * 100).toFixed(1)}%` : '0.0%',
+                icon: Activity, 
+                color: 'var(--success)', 
+                delay: '0.3s',
+                className: energySavings > 0.1 ? "pulse" : ""
+              },
+              { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
+              { 
+                label: 'Average Temperature', 
+                value: `${results?.metrics?.scari?.average_temperature.toFixed(1) || '0.0'}°C`, 
+                icon: Thermometer, 
+                color: results ? (results.metrics.scari.average_temperature < 55 ? 'var(--success)' : results.metrics.scari.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
+                delay: '0.5s',
+                subtitle: 'Target: 45-55°C'
+              },
+              { 
+                label: 'Safety Status', 
+                value: results ? (results.metrics.scari.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
+                icon: ShieldCheck, 
+                color: results ? (results.metrics.scari.safety_violations < 5 ? 'var(--success)' : results.metrics.scari.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
+                delay: '0.6s',
+                subtitle: results ? `${results.metrics.scari.safety_violations} overtemp events` : null
+              }
+            ];
+            return metricsData.map((metric, i) => (
+              <div key={i} className={`card animate-fade-in ${metric.className}`} style={{ animationDelay: metric.delay }}>
+                <p className="text-label">{metric.label}</p>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: metric.color === 'var(--text-secondary)' ? 'var(--text-primary)' : metric.color }}>
+                    {metric.value}
+                  </span>
+                  <metric.icon size={18} color={metric.color} style={{ opacity: 0.8 }} />
+                </div>
+                {metric.subtitle && (
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    {metric.subtitle}
+                  </p>
+                )}
               </div>
-              {metric.subtitle && (
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                  {metric.subtitle}
-                </p>
-              )}
-            </div>
-          ))}
+            ));
+          })()}
         </div>
 
         {/* Main Analytics Area */}
@@ -587,7 +593,7 @@ const App = () => {
                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem' }}>
                   <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.5rem' }}></div>
                   <h4 style={{ color: 'var(--accent-primary)' }}>Simulating Environment...</h4>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Processing 5,000 steps of neural policy...</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Processing {Number(evalSteps).toLocaleString()} steps of neural policy...</p>
                </div>
              ) : results?.images?.length > 0 ? (
                results.images.map((img, i) => (

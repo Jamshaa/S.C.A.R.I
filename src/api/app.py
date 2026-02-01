@@ -82,7 +82,23 @@ async def root():
         "name": "S.C.A.R.I API",
         "version": "2.0.0",
         "status": "online",
-        "endpoints": ["/models", "/status", "/results", "/outputs"]
+        "endpoints": ["/models", "/status", "/results", "/outputs", "/health"]
+    }
+
+@app.get("/health")
+async def health_check():
+    """Detailed health check for the SCARI ecosystem."""
+    import torch
+    return {
+        "status": "operating",
+        "compute": {
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "torch_version": torch.__version__
+        },
+        "storage": {
+            "models_count": len(list(MODELS_DIR.glob("*.zip"))),
+            "evaluations_count": len(list(OUTPUTS_DIR.glob("*.json")))
+        }
     }
 
 class TrainingParams(BaseModel):
@@ -128,15 +144,24 @@ greendc = GreenDCCalculator() # Default industrial rates
 async def get_models():
     """List all available models."""
     models = []
+    # Avoid listing hidden files and ensure we only get .zip
     for f in MODELS_DIR.glob("*.zip"):
-        models.append(f.name)
+        if f.is_file() and not f.name.startswith('.'):
+            models.append(f.name)
     return {"models": models}
+
+def sanitize_model_name(name: str) -> str:
+    """Basic sanitization to prevent path traversal."""
+    return os.path.basename(name)
 
 @app.post("/models/rename")
 async def rename_model(request: RenameRequest):
     """Rename an existing model."""
-    old_path = MODELS_DIR / request.old_name
-    new_path = MODELS_DIR / request.new_name
+    old_name = sanitize_model_name(request.old_name)
+    new_name = sanitize_model_name(request.new_name)
+    
+    old_path = MODELS_DIR / old_name
+    new_path = MODELS_DIR / new_name
     
     if not old_path.exists():
         logger.warning(f"Rename failed: Model {request.old_name} not found")
@@ -291,7 +316,8 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
 @app.post("/evaluate")
 async def run_evaluation(model_name: str, background_tasks: BackgroundTasks, steps: int = 5000):
     """Run evaluation for a specific model in background."""
-    model_path = MODELS_DIR / model_name
+    safe_name = sanitize_model_name(model_name)
+    model_path = MODELS_DIR / safe_name
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     
@@ -313,19 +339,36 @@ async def get_evaluation_status():
 
 @app.get("/results")
 async def get_results():
-    """Get the results of the last evaluation."""
+    """Get the results of the last evaluation with safety checks."""
     metrics_path = OUTPUTS_DIR / "metrics.json"
     if not metrics_path.exists():
-        return {"error": "No results available"}
+        logger.warning("Attempted to fetch results but metrics.json is missing")
+        return {"error": "No results available. Please run an evaluation first."}
     
-    with open(metrics_path, "r") as f:
-        metrics = json.load(f)
+    try:
+        with open(metrics_path, "r") as f:
+            metrics = json.load(f)
+    except Exception as e:
+        logger.error(f"Error reading metrics.json: {e}")
+        return {"error": "Failed to parse evaluation results."}
+    
+    # List available images in outputs/eval
+    images = []
+    try:
+        for f in sorted(OUTPUTS_DIR.glob("*.png")):
+            # Only include valid images
+            if f.stat().st_size > 0:
+                images.append(f"/outputs/eval/{f.name}")
+    except Exception as e:
+        logger.error(f"Error listing output images: {e}")
+        # Continue without images if there's an error
+        images = []
     
     # Calculate sustainability impact
     green_impact = greendc.calculate_impact(
         baseline_power_w=metrics['baseline']['total_power_consumption'],
-        scari_power_w=metrics['scari_v2']['total_power_consumption'],
-        simulation_steps=5000 # Default, could be dynamic
+        scari_power_w=metrics['scari']['total_power_consumption'],
+        simulation_steps=metrics['scari'].get('total_steps', 5000)
     )
         
     return {

@@ -12,28 +12,25 @@
 - **Autonomous Thermal Regulation**: Self-learning policies that adapt to variable workloads and ambient conditions in real-time.
 - **Physics-Informed Simulation**: High-fidelity environmental modeling including thermal inertia, recirculation, and Arrhenius-based component aging.
 - **Production-Ready Architecture**:
-  - **Secure API**: Hardened FastAPI backend with Pydantic validation and strict CORS policies.
-  - **Containerized**: Native Docker support for seamless cloud deployment.
-  - **Observability**: Structured JSON logging and real-time telemetry dashboard.
-- **Modern UI/UX**: Professional Glassmorphism interface with dark/light modes and intuitive model management.
+  - **Secure API**: Hardened FastAPI backend with Pydantic validation and path sanitization.
+  - **Sustainability (GreenDC)**: Built-in calculator logic for CO2 reduction, forest-equivalents, and ROI.
+  - **Explainable AI (XAI)**: Specialized dashboard providing decision-reasoning and feature attribution.
+  - **Modern UI/UX**: Professional Glassmorphism interface with dark/light modes and telemetry visualization.
 
 ## 📁 System Architecture
 
 ```text
 SCARI/
-├── .github/            # CI/CD Workflows
-├── configs/            # YAML Configuration (Physics & Hyperparameters)
-├── data/               # Model Artifacts and Checkpoints
+├── configs/            # Physics & Hyperparameters
+├── data/               # Model Artifacts (.zip)
 ├── src/
-│   ├── api/            # FastAPI Backend & Endpoints
-│   ├── envs/           # Gymnasium Environment Logic
-│   ├── models/         # Neural Network Architectures
-│   └── utils/          # Core Utilities & Helpers
-├── tests/              # Unit & Integration Tests
-├── ui/                 # React/Vite Frontend Dashboard
-├── docker-compose.yml  # Orchestration
-├── Dockerfile          # Container Definition
-└── requirements.txt    # Frozen Dependencies (Lockfile)
+│   ├── api/            # FastAPI + GreenDC Core
+│   ├── envs/           # Gymnasium Simulation
+│   ├── models/         # Neural Architectures
+│   └── utils/          # Visualization & Math
+├── tests/              # Pytest Suite
+├── ui/                 # React/Vite Dashboard
+└── requirements.txt    # Dependencies
 ```
 
 ## 🛠️ Quick Start

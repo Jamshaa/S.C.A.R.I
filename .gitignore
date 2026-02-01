@@ -30,10 +30,14 @@ ENV/
 Thumbs.db
 
 # Project Specific
-logs/
-data/models/
-data/results/
-outputs/
-*.zip
-*.pkl
+logs/*
+!logs/.gitkeep
+data/models/*.zip
+data/results/*
+outputs/eval/*
+!outputs/eval/.gitkeep
+.pytest_cache/
+.vscode/
+.idea/
+*.log
 config.json

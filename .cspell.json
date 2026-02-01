@@ -1,0 +1,34 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "scari",
+    "overtemp",
+    "XAI",
+    "uvicorn",
+    "greendc",
+    "explainability",
+    "glassmorphism",
+    "JetBrains",
+    "Outfit",
+    "Vite",
+    "Recharts",
+    "FastAPI",
+    "Gymnasium",
+    "SB3",
+    "timesteps",
+    "hyperscale",
+    "Pydantic",
+    "Hyperparameters",
+    "venv",
+    "datacenter",
+    "PPO"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "venv",
+    ".git",
+    "dist",
+    "outputs"
+  ]
+}

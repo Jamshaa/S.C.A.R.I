@@ -117,8 +117,8 @@ class DataCenterEnv(gym.Env):
             "max_temp": float(max_temp),
             "avg_temp": self.rack.get_avg_temperature(),
             "avg_health": self.rack.get_avg_health(),
-            "it_power": float(sum(s.get_power()['it_power'] for s in self.rack.servers)),
-            "cooling_power": float(sum(s.get_power()['cooling_power'] for s in self.rack.servers)),
+            "it_power": float(sum(s['it_power'] for s in stats)),
+            "cooling_power": float(sum(s['cooling_power'] for s in stats)),
             "stats": stats # Added for evaluate.py stability
         }
         
@@ -136,17 +136,26 @@ class DataCenterEnv(gym.Env):
         if self.prev_temps is None:
             trends = np.zeros_like(temps)
         else:
+            # Add Sensor Noise (Enterprise-Grade Realism)
+            # +/- 0.5°C jitter simulates real-world thermistors
+            obs_noise = self.np_random.normal(0, 0.5, self.num_servers)
+            noisy_temps = temps + obs_noise
+            
             # Scale trend so that a 1.0 degree increase per step is "high" (0.5 + 0.5)
-            trends = (temps - self.prev_temps) / 10.0 # Map -10..10 to -1..1 roughly
-            trends = np.clip(trends * 0.5 + 0.5, 0, 1) # Shift to [0, 1]
+            # We use the previous noisy temps for trend to simulate sequential jitter
+            trends = (noisy_temps - self.prev_temps) / 10.0 
+            trends = np.clip(trends * 0.5 + 0.5, 0, 1) 
+            
+            # Use noisy temps for main observation too
+            temps_for_obs = noisy_temps
         
         # Normalize temperatures between min and max allowed
         t_min = self.config.physics.min_temp
         t_max = self.config.physics.max_temp
-        norm_temps = (temps - t_min) / (t_max - t_min + 1e-6)
+        norm_temps = (temps_for_obs - t_min) / (t_max - t_min + 1e-6)
         norm_temps = np.clip(norm_temps, 0, 1)
         
-        self.prev_temps = temps.copy()
+        self.prev_temps = temps_for_obs.copy()
         
         # Loads and Health are already roughly [0, 1]
         return np.concatenate([norm_temps, loads, health, trends]).astype(np.float32)
@@ -188,37 +197,41 @@ class DataCenterEnv(gym.Env):
         pue_improvement = max(0, pue_baseline - pue)
         pue_reward = self.config.reward.energy_coefficient * (pue_improvement * 10.0)
         
+        # 1b. Peak Demand Penalty (New in S.C.A.R.I. "Enterprise")
+        # Penalize high instantaneous power peaks to avoid grid stress
+        demand_limit = self.config.physics.p_max * self.num_servers * 0.8
+        demand_penalty = 0.0
+        if total_power > demand_limit:
+            demand_penalty = 0.5 * (total_power - demand_limit) / 100.0
+        
         # 2. Thermal Stability Reward (Gaussian bell curve)
         # Incentivize staying near the "sweet spot" (e.g. 45-48C)
         # We use a fixed center for ideal mechanics, but penalty is dynamic.
         ideal_temp = 46.0 
         thermal_reward = 10.0 * np.exp(-0.05 * (avg_temp - ideal_temp)**2)
 
-        # 3. Safety / Overheating Penalty (The Enforcer)
-        # Use safe_threshold from config (Recommended: 55.0)
+        # 3. Aggressive Safety Enforcer (The Hard Wall)
+        # Target: NEVER exceed 63.0°C. 
+        # Strategy: Proactive ramp starting at 50°C, extreme wall at 63°C.
         safety_penalty = 0.0
-        threshold = self.config.reward.safe_threshold
-        if max_temp > threshold:
-            excess = max_temp - threshold
-            # Softened penalty: Linear-Quadratic mix to prevent gradient explosion
-            # Below 10 degrees excess: quadratic. Above: linear.
-            if excess < 10.0:
-                safety_penalty = self.config.reward.thermal_penalty_coefficient * (excess ** 2)
-            else:
-                # 10^2 * coeff + (excess-10) * slope
-                slope = 2 * 10 * self.config.reward.thermal_penalty_coefficient
-                safety_penalty = (100 * self.config.reward.thermal_penalty_coefficient) + (excess - 10.0) * slope
-            
-            # Global cap to prevent extreme values
-            safety_penalty = np.clip(safety_penalty, 0, 5000)
+        safe_wall = 63.0
+        warning_start = 50.0
         
-        # 4. Cooling Action Penalty (Tiny penalty for fan wear)
-        cooling_action_penalty = 0.01 * np.mean(actions)**2
-
+        if max_temp > warning_start:
+            # Proactive exponential penalty as we approach the wall
+            excess = max_temp - warning_start
+            safety_penalty = 10.0 * (np.exp(0.4 * excess) - 1.0)
+            
+            # Massive "Hard Wall" penalty if 63.0 is breached
+            if max_temp >= safe_wall:
+                safety_penalty += 2000.0 + (500.0 * (max_temp - safe_wall))
+        
+        # 4. Cooling Action Penalty (Reduced to encourage more cooling use)
+        cooling_action_penalty = 0.001 * np.mean(actions)**2
         # 5. Health Penalty
         health_penalty = 1000.0 * (1.0 - avg_health)
         
-        reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty
+        reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty - demand_penalty
         
         # Disaster prevention
         if max_temp >= self.config.physics.max_temp:
