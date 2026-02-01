@@ -117,6 +117,9 @@ class DataCenterEnv(gym.Env):
             "max_temp": float(max_temp),
             "avg_temp": self.rack.get_avg_temperature(),
             "avg_health": self.rack.get_avg_health(),
+            "it_power": float(sum(s.get_power()['it_power'] for s in self.rack.servers)),
+            "cooling_power": float(sum(s.get_power()['cooling_power'] for s in self.rack.servers)),
+            "stats": stats # Added for evaluate.py stability
         }
         
         return self._get_obs(), float(reward), terminated, truncated, info
@@ -197,8 +200,17 @@ class DataCenterEnv(gym.Env):
         threshold = self.config.reward.safe_threshold
         if max_temp > threshold:
             excess = max_temp - threshold
-            # Quadratic penalty: We want this to be the DOMINANT term
-            safety_penalty = self.config.reward.thermal_penalty_coefficient * (excess ** 2)
+            # Softened penalty: Linear-Quadratic mix to prevent gradient explosion
+            # Below 10 degrees excess: quadratic. Above: linear.
+            if excess < 10.0:
+                safety_penalty = self.config.reward.thermal_penalty_coefficient * (excess ** 2)
+            else:
+                # 10^2 * coeff + (excess-10) * slope
+                slope = 2 * 10 * self.config.reward.thermal_penalty_coefficient
+                safety_penalty = (100 * self.config.reward.thermal_penalty_coefficient) + (excess - 10.0) * slope
+            
+            # Global cap to prevent extreme values
+            safety_penalty = np.clip(safety_penalty, 0, 5000)
         
         # 4. Cooling Action Penalty (Tiny penalty for fan wear)
         cooling_action_penalty = 0.01 * np.mean(actions)**2

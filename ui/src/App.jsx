@@ -3,10 +3,10 @@ import {
   Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
   Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
   Download, AlertCircle, CheckCircle2, Loader2, Info,
-  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2
+  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8001';
+const API_BASE = 'http://localhost:8000';
 
 const fetchWithRetry = async (url, options = {}, retries = 3) => {
   for (let i = 0; i < retries; i++) {
@@ -98,7 +98,6 @@ const App = () => {
       const evalRes = await fetch(`${API_BASE}/evaluation-status`);
       const evalData = await evalRes.json();
       setIsEvaluating(evalData.is_evaluating);
-      if (evalData.is_evaluating) setEvalLog(evalData.last_log);
       if (evalData.is_evaluating) setEvalLog(evalData.last_log);
     } catch (e) { 
       // Silent failure for status polling
@@ -622,6 +621,48 @@ const App = () => {
              )}
            </div>
         </div>
+
+        {/* Sustainability & ROI Section */}
+        {results?.sustainability && (
+          <section className="animate-fade-in" style={{ animationDelay: '0.7s' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
+              <Leaf size={24} color="var(--success)" />
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Sustainability & ROI Calculator</h2>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
+              <div className="card" style={{ borderLeft: '4px solid var(--success)' }}>
+                  <p className="text-label">Est. Financial Savings (Yearly)</p>
+                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--success)' }}>
+                    €{results.sustainability.projected_yearly_savings_eur.toLocaleString()}
+                  </span>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    Based on €{results.sustainability.market_data.price_eur_kwh}/kWh industrial rate
+                  </p>
+              </div>
+              
+              <div className="card" style={{ borderLeft: '4px solid var(--accent-secondary)' }}>
+                  <p className="text-label">Carbon Offset (Yearly)</p>
+                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>
+                    {results.sustainability.projected_yearly_co2_kg.toLocaleString()} kg CO₂
+                  </span>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    Reduction in infrastructure footprint
+                  </p>
+              </div>
+              
+              <div className="card" style={{ borderLeft: '4px solid #4ade80' }}>
+                  <p className="text-label">Environmental Equivalent</p>
+                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: '#4ade80' }}>
+                    {results.sustainability.trees_equivalent.toLocaleString()} Trees
+                  </span>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                    Absorption equivalent of mature forest
+                  </p>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Explainability Section */}
         {results?.metrics?.decisions && (

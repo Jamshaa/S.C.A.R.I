@@ -116,17 +116,15 @@ class EvaluationRunner:
             obs, reward, done, info = self.env.step([action])
             
             # Get actual temps from info to compute NEXT action
-            # We use the FIRST env's info (info[0])
-            server_temps = np.array([s['temp'] for s in info[0].get('stats', [{'temp': info[0]['avg_temp']}]*self.num_servers)])
-            
-            # Compute action for NEXT step
+            # Actual temps from info (reliable)
+            server_temps = np.array([s['temp'] for s in info[0].get('stats', [{'temp': info[0].get('avg_temp', 25.0)}]*self.num_servers)])
             action = self.baseline.compute_action(server_temps, self.num_servers)
             
             rewards.append(reward[0])
-            temps.append(info[0]['max_temp'])
-            powers.append(info[0]['total_power'])
-            it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
-            cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
+            temps.append(info[0].get('max_temp', 25.0))
+            powers.append(info[0].get('total_power', 0.0))
+            it_powers.append(info[0].get('it_power', info[0].get('total_power', 0.0) * 0.9))
+            cooling_powers.append(info[0].get('cooling_power', info[0].get('total_power', 0.0) * 0.1))
             healths.append(info[0].get('avg_health', 1.0))
             all_actions.append(np.mean(action))
             
@@ -155,14 +153,14 @@ class EvaluationRunner:
             if step % 50 == 0:
                 explanation = explainer.explain_action(obs, action[0], step)
                 decisions_log.append(explanation)
-            
+            # Ensure action is passed as a list of actions for VecEnv
             obs, reward, done, info = self.env.step(action)
             
             rewards.append(reward[0])
-            temps.append(info[0].get('max_temp', info[0]['avg_temp']))
-            powers.append(info[0]['total_power'])
-            it_powers.append(info[0].get('it_power', info[0]['total_power'] * 0.9))
-            cooling_powers.append(info[0].get('cooling_power', info[0]['total_power'] * 0.1))
+            temps.append(info[0].get('max_temp', info[0].get('avg_temp', 25.0)))
+            powers.append(info[0].get('total_power', 0.0))
+            it_powers.append(info[0].get('it_power', info[0].get('total_power', 0.0) * 0.9))
+            cooling_powers.append(info[0].get('cooling_power', info[0].get('total_power', 0.0) * 0.1))
             healths.append(info[0].get('avg_health', 1.0))
             all_actions.append(np.mean(action[0]))
             

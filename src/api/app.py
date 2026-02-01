@@ -8,6 +8,7 @@ import json
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from src.utils.greendc import GreenDCCalculator
 from pydantic import BaseModel, validator
 import logging
 
@@ -33,9 +34,11 @@ app = FastAPI(title="S.C.A.R.I API")
 # Enable CORS for specific frontend origins
 origins = [
     "http://localhost",
-    "http://localhost:5173", # Vite
-    "http://localhost:3000", # CRA
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
     "http://127.0.0.1:3000",
 ]
 
@@ -58,6 +61,19 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Servir archivos estáticos para ver las gráficas (png)
 app.mount("/outputs", StaticFiles(directory=str(BASE_DIR / "outputs")), name="outputs")
+
+def get_python_executable():
+    """Get the path to the python executable in the venv, cross-platform."""
+    # Windows
+    windows_path = BASE_DIR / "venv" / "Scripts" / "python.exe"
+    if windows_path.exists():
+        return str(windows_path)
+    # Linux / Mac
+    unix_path = BASE_DIR / "venv" / "bin" / "python"
+    if unix_path.exists():
+        return str(unix_path)
+    # Fallback
+    return "python"
 
 @app.get("/")
 async def root():
@@ -106,6 +122,7 @@ class EvaluationStatus:
 
 status = TrainingStatus()
 eval_status = EvaluationStatus()
+greendc = GreenDCCalculator() # Default industrial rates
 
 @app.get("/models")
 async def get_models():
@@ -165,10 +182,7 @@ def run_train_task(params: TrainingParams):
     status.current_step = 0
     status.total_steps = params.timesteps
     try:
-        # Use full path to python in venv if it exists, otherwise use 'python'
-        venv_python = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
-        if not os.path.exists(venv_python):
-            venv_python = "python"
+        venv_python = get_python_executable()
             
         # Construct command
         cmd = [
@@ -234,9 +248,7 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
     eval_status.error = ""
     eval_status.result = None
     
-    venv_python = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
-    if not os.path.exists(venv_python):
-        venv_python = "python"
+    venv_python = get_python_executable()
 
     cmd = [
         venv_python, "-m", "src.evaluate",
@@ -309,14 +321,17 @@ async def get_results():
     with open(metrics_path, "r") as f:
         metrics = json.load(f)
     
-    # List available images in outputs/eval
-    images = []
-    for f in sorted(OUTPUTS_DIR.glob("*.png")):
-        images.append(f"/outputs/eval/{f.name}")
+    # Calculate sustainability impact
+    green_impact = greendc.calculate_impact(
+        baseline_power_w=metrics['baseline']['total_power_consumption'],
+        scari_power_w=metrics['scari_v2']['total_power_consumption'],
+        simulation_steps=5000 # Default, could be dynamic
+    )
         
     return {
         "metrics": metrics,
-        "images": images
+        "images": images,
+        "sustainability": green_impact
     }
 
 @app.get("/explain")
