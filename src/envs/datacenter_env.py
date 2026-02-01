@@ -37,12 +37,14 @@ class DataCenterEnv(gym.Env):
         self.episode_count = 0
         
         # SCARI: Normalized observation space [0, 1]
-        # [Normalized Temps, Loads, Health]
+        # [Normalized Temps, Loads, Health, Temp Trends]
         self.observation_space = spaces.Box(
             low=0.0, high=1.0,
-            shape=(3 * self.num_servers,),
+            shape=(4 * self.num_servers,),
             dtype=np.float32
         )
+        
+        self.prev_temps = None # For calculating trends
         
         # Action: [Cooling actions per server...]
         self.action_space = spaces.Box(
@@ -62,6 +64,7 @@ class DataCenterEnv(gym.Env):
         super().reset(seed=seed)
         
         self.rack.reset()
+        self.prev_temps = self.rack.get_temperatures()
         
         # Ensure we use the seed provided by gymnasium
         self.current_loads = self.np_random.uniform(
@@ -126,14 +129,24 @@ class DataCenterEnv(gym.Env):
         loads = self.current_loads
         health = np.array([s.health for s in self.rack.servers])
         
+        # Calculate trends (Normalized change per step)
+        if self.prev_temps is None:
+            trends = np.zeros_like(temps)
+        else:
+            # Scale trend so that a 1.0 degree increase per step is "high" (0.5 + 0.5)
+            trends = (temps - self.prev_temps) / 10.0 # Map -10..10 to -1..1 roughly
+            trends = np.clip(trends * 0.5 + 0.5, 0, 1) # Shift to [0, 1]
+        
         # Normalize temperatures between min and max allowed
         t_min = self.config.physics.min_temp
         t_max = self.config.physics.max_temp
         norm_temps = (temps - t_min) / (t_max - t_min + 1e-6)
         norm_temps = np.clip(norm_temps, 0, 1)
         
+        self.prev_temps = temps.copy()
+        
         # Loads and Health are already roughly [0, 1]
-        return np.concatenate([norm_temps, loads, health]).astype(np.float32)
+        return np.concatenate([norm_temps, loads, health, trends]).astype(np.float32)
 
     def get_raw_observations(self) -> Dict[str, np.ndarray]:
         """
@@ -161,48 +174,37 @@ class DataCenterEnv(gym.Env):
         avg_health = np.mean([s['health'] for s in stats])
         pue = total_power / (it_power + 1e-6)
         
-        profile = self.config.reward.profile
+        # ---------------------------------------------------------
+        # Dynamic Reward Function (Uses optimized.yaml values)
+        # ---------------------------------------------------------
         
-        if profile == "PRODUCTION_SAFE":
-            # 🛡️ PRODUCTION SAFE: Priority is Thermal Stability & Safety
-            pue_reward = 20.0 * max(0, 1.20 - pue) # Low priority for PUE
-            
-            # Narrow Gaussian centered at 45°C (Ideal ASHRAE range)
-            thermal_reward = 800.0 * np.exp(-0.02 * (avg_temp - 45.0)**2)
-            
-            # Early and aggressive safety penalties
-            safety_penalty = 0.0
-            if max_temp > 55.0: # Penalty starts MUCH earlier
-                safety_penalty = 1000.0 * (max_temp - 55.0)**2
-            
-            cooling_action_penalty = 50.0 * np.mean(actions)**2 # Low penalty to allow cooling
-            health_penalty = 5000.0 * (1.0 - avg_health) # Very high priority
-            
-        elif profile == "MAX_EFFICIENCY":
-            # 🔥 MAX EFFICIENCY: Priority is Energy Savings
-            pue_reward = 150.0 * max(0, 1.15 - pue) # High priority for PUE
-            
-            # Broad Gaussian (don't care as much about exact temp, just stay below critical)
-            thermal_reward = 200.0 * np.exp(-0.005 * (avg_temp - 55.0)**2)
-            
-            # Standard safety penalties
-            safety_penalty = 0.0
-            if max_temp > 70.0:
-                safety_penalty = 500.0 * (max_temp - 70.0)**2
-            
-            cooling_action_penalty = 200.0 * np.mean(actions)**2 # High penalty to discourage fan use
-            health_penalty = 1000.0 * (1.0 - avg_health)
-            
-        else: # BALANCED
-            pue_reward = 80.0 * max(0, 1.15 - pue)
-            thermal_reward = 400.0 * np.exp(-0.015 * (avg_temp - 45.0)**2)
-            
-            safety_penalty = 0.0
-            if max_temp > 70.0:
-                safety_penalty = 500.0 * (max_temp - 70.0)**2
-                
-            cooling_action_penalty = 100.0 * np.mean(actions)**2
-            health_penalty = 2000.0 * (1.0 - avg_health)
+        # 1. PUE / Energy Reward
+        # We want to minimize PUE (closer to 1.0 is better).
+        # Reward increases as PUE drops below a baseline (e.g. 1.25)
+        pue_baseline = 1.25
+        pue_improvement = max(0, pue_baseline - pue)
+        pue_reward = self.config.reward.energy_coefficient * (pue_improvement * 10.0)
+        
+        # 2. Thermal Stability Reward (Gaussian bell curve)
+        # Incentivize staying near the "sweet spot" (e.g. 45-48C)
+        # We use a fixed center for ideal mechanics, but penalty is dynamic.
+        ideal_temp = 46.0 
+        thermal_reward = 10.0 * np.exp(-0.05 * (avg_temp - ideal_temp)**2)
+
+        # 3. Safety / Overheating Penalty (The Enforcer)
+        # Use safe_threshold from config (Recommended: 55.0)
+        safety_penalty = 0.0
+        threshold = self.config.reward.safe_threshold
+        if max_temp > threshold:
+            excess = max_temp - threshold
+            # Quadratic penalty: We want this to be the DOMINANT term
+            safety_penalty = self.config.reward.thermal_penalty_coefficient * (excess ** 2)
+        
+        # 4. Cooling Action Penalty (Tiny penalty for fan wear)
+        cooling_action_penalty = 0.01 * np.mean(actions)**2
+
+        # 5. Health Penalty
+        health_penalty = 1000.0 * (1.0 - avg_health)
         
         reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty
         

@@ -15,13 +15,13 @@ class ThermalAttentionExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 128, num_heads: int = 4):
         super().__init__(observation_space, features_dim)
         
-        # Observation space is (3 * num_servers,) -> [Temps..., Loads..., Health...]
-        self.num_servers = observation_space.shape[0] // 3
+        # Observation space is (4 * num_servers,) -> [Temps..., Loads..., Health..., Trends...]
+        self.num_servers = observation_space.shape[0] // 4
         self.embed_dim = 32
         
         # Input embeddings for each server state
-        # Each server has 3 features: Temperature, Load, Health
-        self.encoder = nn.Linear(3, self.embed_dim)
+        # Each server has 4 features: Temperature, Load, Health, Trend
+        self.encoder = nn.Linear(4, self.embed_dim)
         
         # Transformer Layer
         encoder_layer = nn.TransformerEncoderLayer(
@@ -38,14 +38,15 @@ class ThermalAttentionExtractor(BaseFeaturesExtractor):
         self.projector = nn.Linear(self.num_servers * self.embed_dim, features_dim)
         
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        # observations: (batch_size, 3 * num_servers)
+        # observations: (batch_size, 4 * num_servers)
         batch_size = observations.shape[0]
         
-        # Reshape to (batch_size, num_servers, 3)
+        # Reshape to (batch_size, num_servers, 4)
         temps = observations[:, :self.num_servers].unsqueeze(-1)
         loads = observations[:, self.num_servers:2*self.num_servers].unsqueeze(-1)
-        health = observations[:, 2*self.num_servers:].unsqueeze(-1)
-        server_states = th.cat([temps, loads, health], dim=-1)
+        health = observations[:, 2*self.num_servers:3*self.num_servers].unsqueeze(-1)
+        trends = observations[:, 3*self.num_servers:].unsqueeze(-1)
+        server_states = th.cat([temps, loads, health, trends], dim=-1)
         
         # Embed each server
         embeddings = th.relu(self.encoder(server_states)) # (batch_size, num_servers, embed_dim)

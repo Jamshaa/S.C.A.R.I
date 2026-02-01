@@ -13,30 +13,30 @@ cooling:
   max_fan_power: 500.0
   max_pump_power: 80.0
   base_pump_power: 15.0
-  air_cooling_capacity: 4000.0
-  liquid_cooling_capacity: 15000.0
-  natural_convection: 80.0
+  air_cooling_capacity: 8000.0 # Doubled for faster heat removal
+  liquid_cooling_capacity: 20000.0
+  natural_convection: 100.0
 
 reward:
-  # Aggressive energy optimization
-  energy_coefficient: 15.0 # Even stronger energy focus
-  safe_threshold: 55.0 # Allow higher temps
-  critical_limit: 85.0
-  thermal_penalty_coefficient: 80.0
-  emergency_penalty: 500.0
-  energy_efficiency_bonus: 10.0
+  # Stability First (No Oscillation)
+  energy_coefficient: 0.5
+  safe_threshold: 55.0 # Cushion between ideal (46) and penalty
+  critical_limit: 75.0
+  thermal_penalty_coefficient: 150.0 # Very strong quadratic penalty
+  emergency_penalty: 5000.0
+  energy_efficiency_bonus: 2.0
 
 training:
   timesteps: 1000000 # 1M steps for solid convergence
-  learning_rate: 0.00008 # Slightly lower for stability
-  n_steps: 8192 # Large rollout buffer
-  batch_size: 256
-  gamma: 0.9998 # Very high discount for long-term energy savings
-  gae_lambda: 0.98
-  ent_coef: 0.008 # More exploration for better policies
+  learning_rate: 0.0003
+  n_steps: 1024 # Slightly larger for better gradient estimation
+  batch_size: 128
+  gamma: 0.999 # Standard discount
+  gae_lambda: 0.95
+  ent_coef: 0.001 # Reduced to stop jittering
   vf_coef: 0.5
   max_grad_norm: 0.5
-  n_epochs: 15
+  n_epochs: 10
   clip_range: 0.2
   normalize_advantage: true
   normalize_observation: true

@@ -179,7 +179,18 @@ h3 { font-size: 1.1rem; font-weight: 600; }
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit', sans-serif;
   transition: all 0.3s;
+}
+
+/* Hide Spin Buttons */
+.input-field::-webkit-outer-spin-button,
+.input-field::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.input-field[type=number] {
+  -moz-appearance: textfield;
 }
 
 .input-field:focus {

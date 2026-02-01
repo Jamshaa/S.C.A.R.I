@@ -6,7 +6,7 @@ from collections import deque
 class DecisionExplainer:
     """Explains SCARI agent decisions in human-readable format."""
     
-    def __init__(self, t_min: float = 30.0, t_max: float = 85.0, max_history=100):
+    def __init__(self, t_min: float = 22.0, t_max: float = 95.0, max_history=100):
         self.decision_history = deque(maxlen=max_history)
         self.t_min = t_min
         self.t_max = t_max
@@ -14,7 +14,9 @@ class DecisionExplainer:
             "Server 0 Temp", "Server 1 Temp", "Server 2 Temp", "Server 3 Temp", "Server 4 Temp",
             "Server 5 Temp", "Server 6 Temp", "Server 7 Temp", "Server 8 Temp", "Server 9 Temp",
             "Server 0 Load", "Server 1 Load", "Server 2 Load", "Server 3 Load", "Server 4 Load",
-            "Server 5 Load", "Server 6 Load", "Server 7 Load", "Server 8 Load", "Server 9 Load"
+            "Server 5 Load", "Server 6 Load", "Server 7 Load", "Server 8 Load", "Server 9 Load",
+            "Trend 0", "Trend 1", "Trend 2", "Trend 3", "Trend 4",
+            "Trend 5", "Trend 6", "Trend 7", "Trend 8", "Trend 9"
         ]
     
     def explain_action(self, observation: np.ndarray, action: np.ndarray, step: int) -> Dict:
@@ -39,7 +41,9 @@ class DecisionExplainer:
         norm_temps = observation[:num_servers]
         # Denormalize temps for reasoning
         temps = norm_temps * (self.t_max - self.t_min) + self.t_min
-        loads = observation[num_servers:2*num_servers] # Health might be after loads
+        loads = observation[num_servers:2*num_servers]
+        health = observation[2*num_servers:3*num_servers]
+        trends = observation[3*num_servers:4*num_servers] # New Trend component
         
         # Calculate feature importance (simple gradient-based attribution)
         feature_importance = self._calculate_feature_importance(temps, loads, action)
@@ -55,6 +59,7 @@ class DecisionExplainer:
             "temperatures": temps.tolist(),
             "loads": loads.tolist(),
             "actions": action.tolist(),
+            "trends": trends.tolist(),
             "reasoning": reasoning,
             "feature_importance": feature_importance,
             "confidence": confidence,

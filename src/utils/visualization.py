@@ -13,7 +13,8 @@ from typing import List, Dict, Tuple, Any
 import seaborn as sns
 
 # Set professional style
-sns.set_style("whitegrid")
+# Set professional style
+# sns.set_style("darkgrid") # Use matplotlib style instead for better control
 plt.rcParams['figure.dpi'] = 150
 plt.rcParams['savefig.dpi'] = 300
 plt.rcParams['font.family'] = 'sans-serif'
@@ -30,15 +31,36 @@ class PerformanceVisualizer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Color scheme
+        # Dark Mode Color scheme
         self.colors = {
-            'baseline': '#E63946',  # Sharp red - classic/legacy
-            'scari': '#1D3557',     # Deep blue - professional AI
-            'savings': '#A8DADC',   # High-contrast light teal
-            'warning': '#FFB703',   # Amber warning
-            'danger': '#D00000',    # Critical red
-            'safe': '#2A9D8F',      # Professional green
-            'background': '#F8F9FA' # Off-white background
+            'baseline': '#FF6B6B',  # Bright Red
+            'scari': '#4CC9F0',     # Neon Cyan
+            'savings': '#4895EF',   # Bright Blue
+            'warning': '#FCC419',   # Safety Yellow
+            'danger': '#FA5252',    # Danger Red
+            'safe': '#51CF66',      # Green
+            'background': '#05070a', # Matches app bg
+            'text': '#E9ECEF',      # Off-white text
+            'grid': '#343A40'       # Subtle grid
         }
+        
+        # Apply dark theme globally
+        plt.style.use('dark_background')
+        plt.rcParams.update({
+            'figure.facecolor': self.colors['background'],
+            'axes.facecolor': self.colors['background'],
+            'axes.edgecolor': self.colors['text'],
+            'axes.labelcolor': self.colors['text'],
+            'xtick.color': self.colors['text'],
+            'ytick.color': self.colors['text'],
+            'text.color': self.colors['text'],
+            'grid.color': self.colors['grid'],
+            'figure.dpi': 150,
+            'savefig.dpi': 300,
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Arial', 'DejaVu Sans'],
+            'font.size': 10
+        })
     
     def create_comprehensive_dashboard(
         self,
@@ -79,7 +101,7 @@ class PerformanceVisualizer:
         )
         
         plt.savefig(self.output_dir / 'comprehensive_dashboard.png', 
-                   bbox_inches='tight', facecolor='white', dpi=300)
+                   bbox_inches='tight', pad_inches=0.2, facecolor=self.colors['background'], dpi=300)
         plt.close()
 
     def _save_individual_charts(self, bm, mm, bd, md):
@@ -93,8 +115,13 @@ class PerformanceVisualizer:
         
         for func, args, filename in plots:
             fig, ax = plt.subplots(figsize=(10, 6))
+            # Ensure separate figures also get the dark treatment
+            fig.patch.set_facecolor(self.colors['background'])
+            ax.set_facecolor(self.colors['background'])
+            
             func(ax, *args)
-            plt.savefig(self.output_dir / filename, bbox_inches='tight', dpi=300)
+            plt.savefig(self.output_dir / filename, bbox_inches='tight', pad_inches=0.2,
+                       facecolor=self.colors['background'], dpi=300)
             plt.close()
     
     def _plot_power_comparison(self, ax, baseline_data, model_data):

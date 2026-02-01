@@ -71,7 +71,8 @@ async def root():
 
 class TrainingParams(BaseModel):
     timesteps: int = 10000
-    config: str = "configs/default.yaml"
+    config: str = "configs/optimized.yaml"
+    name: str = "scari_model"
 
     @validator('timesteps')
     def validate_timesteps(cls, v):
@@ -93,6 +94,8 @@ class RenameRequest(BaseModel):
 class TrainingStatus:
     is_training = False
     progress = 0
+    current_step = 0
+    total_steps = 0
     last_log = ""
 
 class EvaluationStatus:
@@ -134,10 +137,33 @@ async def rename_model(request: RenameRequest):
         logger.error(f"Rename error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to rename: {str(e)}")
 
+@app.delete("/models")
+async def delete_all_models():
+    """Delete all model files."""
+    try:
+        count = 0
+        deleted_files = []
+        for f in MODELS_DIR.glob("*.zip"):
+            try:
+                os.remove(f)
+                count += 1
+                deleted_files.append(f.name)
+            except Exception as e:
+                logger.error(f"Failed to delete {f.name}: {e}")
+                
+        logger.info(f"Deleted all models ({count} files)")
+        return {"message": f"Deleted {count} models", "deleted": deleted_files}
+    except Exception as e:
+        logger.error(f"Delete all error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete all: {str(e)}")
+
 
 def run_train_task(params: TrainingParams):
     global status
     status.is_training = True
+    status.progress = 0
+    status.current_step = 0
+    status.total_steps = params.timesteps
     try:
         # Use full path to python in venv if it exists, otherwise use 'python'
         venv_python = str(BASE_DIR / "venv" / "Scripts" / "python.exe")
@@ -148,12 +174,14 @@ def run_train_task(params: TrainingParams):
         cmd = [
             venv_python, "-m", "src.train",
             "--timesteps", str(params.timesteps),
-            "--config", params.config
+            "--config", params.config,
+            "--output-name", params.name
         ]
         
         # Set UTF-8 encoding for Windows
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUNBUFFERED"] = "1"
         
         # Run process
         process = subprocess.Popen(
@@ -167,7 +195,17 @@ def run_train_task(params: TrainingParams):
         )
         for line in process.stdout:
             status.last_log = line.strip()
-            # Basic progress parsing if possible, or just log
+            # Parse progress from SB3 logs
+            if "total_timesteps" in line:
+                try:
+                    # Line format matches: |    total_timesteps     | 1234        |
+                    parts = line.split('|')
+                    if len(parts) >= 3:
+                        timesteps = int(parts[2].strip())
+                        status.current_step = timesteps
+                        status.progress = min(100, int((timesteps / params.timesteps) * 100))
+                except:
+                    pass
     except Exception as e:
         status.last_log = f"Error: {str(e)}"
     finally:
@@ -186,7 +224,8 @@ async def get_status():
     """Get training status."""
     return {
         "is_training": status.is_training,
-        "last_log": status.last_log
+        "last_log": status.last_log,
+        "progress": status.progress
     }
 
 def run_eval_task(model_path: Path, steps: int, output_dir: Path):
@@ -272,7 +311,7 @@ async def get_results():
     
     # List available images in outputs/eval
     images = []
-    for f in OUTPUTS_DIR.glob("*.png"):
+    for f in sorted(OUTPUTS_DIR.glob("*.png")):
         images.append(f"/outputs/eval/{f.name}")
         
     return {

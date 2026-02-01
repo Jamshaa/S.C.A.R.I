@@ -3,10 +3,10 @@ import {
   Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
   Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
   Download, AlertCircle, CheckCircle2, Loader2, Info,
-  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon
+  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8001';
 
 const fetchWithRetry = async (url, options = {}, retries = 3) => {
   for (let i = 0; i < retries; i++) {
@@ -39,6 +39,8 @@ const App = () => {
   const [lastLog, setLastLog] = useState('');
   const [results, setResults] = useState(null);
   const [trainingSteps, setTrainingSteps] = useState(25000);
+  const [trainingName, setTrainingName] = useState('scari_v1');
+  const [trainingProgress, setTrainingProgress] = useState(0);
   const [evalSteps, setEvalSteps] = useState(5000);
   const [evalLog, setEvalLog] = useState('');
   const [toasts, setToasts] = useState([]);
@@ -46,6 +48,9 @@ const App = () => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState('');
   const [newName, setNewName] = useState('');
+  // Removed duplicates
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(''); // 'ALL' or modelName
   const [theme, setTheme] = useState('dark');
 
   useEffect(() => {
@@ -85,7 +90,10 @@ const App = () => {
       const res = await fetch(`${API_BASE}/status`);
       const data = await res.json();
       setIsTraining(data.is_training);
-      if (data.is_training) setLastLog(data.last_log);
+      if (data.is_training) {
+        setLastLog(data.last_log);
+        setTrainingProgress(data.progress || 0);
+      }
       
       const evalRes = await fetch(`${API_BASE}/evaluation-status`);
       const evalData = await evalRes.json();
@@ -103,7 +111,10 @@ const App = () => {
       const res = await fetch(`${API_BASE}/train`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timesteps: trainingSteps })
+        body: JSON.stringify({ 
+          timesteps: trainingSteps,
+          name: trainingName.trim() || 'scari_unnamed'
+        })
       });
       if (!res.ok) throw new Error(await res.text());
       addToast('Training sequence initiated', 'success');
@@ -179,8 +190,84 @@ const App = () => {
     }
   };
 
+  const handleRequestDelete = (modelName, e) => {
+    e.stopPropagation();
+    setDeleteTarget(modelName);
+    setIsDeleting(true);
+  };
+
+  const handleRequestDeleteAll = () => {
+    setDeleteTarget('ALL');
+    setIsDeleting(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    
+    // DELETE ALL
+    if (deleteTarget === 'ALL') {
+      try {
+        const res = await fetch(`${API_BASE}/models`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        addToast(data.message || 'All models deleted', 'success');
+        setModels([]);
+        setSelectedModel('');
+      } catch (err) {
+        addToast('Failed to delete all models', 'error');
+      }
+    } 
+    // DELETE SINGLE
+    else {
+      try {
+        const res = await fetch(`${API_BASE}/models/${deleteTarget}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        addToast(`Deleted ${deleteTarget}`, 'success');
+        setModels(prev => prev.filter(m => m !== deleteTarget));
+        if (selectedModel === deleteTarget) setSelectedModel('');
+      } catch (err) {
+        addToast('Failed to delete model', 'error');
+      }
+    }
+    setIsDeleting(false);
+    setDeleteTarget('');
+  };
+
   return (
     <div className="app-container">
+      {/* Delete Confirmation Modal */}
+      {isDeleting && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div className="card animate-fade-in" style={{ width: '400px', padding: '2rem', border: '1px solid var(--danger)', boxShadow: '0 0 30px rgba(239, 68, 68, 0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', color: 'var(--danger)' }}>
+               <AlertCircle size={32} />
+               <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Confirm Deletion</h3>
+            </div>
+            
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              {deleteTarget === 'ALL' 
+                ? "Are you sure you want to DELETE ALL models? This action acts on the entire repository and cannot be undone."
+                : <span>Are you sure you want to delete <b style={{color: 'var(--text-primary)'}}>{deleteTarget}</b>? This action cannot be undone.</span>
+              }
+            </p>
+            
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button className="btn-outline" onClick={() => setIsDeleting(false)}>Cancel</button>
+              <button 
+                className="btn-primary" 
+                style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                onClick={confirmDelete}
+              >
+                {deleteTarget === 'ALL' ? 'Delete Everything' : 'Delete Model'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Rename Modal */}
       {isRenaming && (
         <div style={{
@@ -237,19 +324,48 @@ const App = () => {
             </h2>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div>
-              <label className="text-label">Target Timesteps</label>
-              <input 
-                type="number" 
-                className="input-field"
-                value={trainingSteps}
-                onChange={(e) => setTrainingSteps(parseInt(e.target.value))}
-                placeholder="e.g. 25000"
-              />
-              <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.5rem', fontStyle: 'italic' }}>
-                <Info size={10} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                Higher steps = better intelligence, more time.
-              </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+              <div>
+                 <label className="text-label">Model Name</label>
+                 <input 
+                   className="input-field"
+                   value={trainingName}
+                   onChange={e => setTrainingName(e.target.value)}
+                   placeholder="e.g. scari_v3_optimized"
+                 />
+              </div>
+
+              <div>
+                <label className="text-label">Target Timesteps</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.2)', padding: '0.4rem', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
+                   <button 
+                     className="btn-outline" 
+                     style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px' }}
+                     onClick={() => setTrainingSteps(Math.max(1000, trainingSteps - 1000))}
+                   >
+                     <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+                   </button>
+                   <input 
+                     type="number" 
+                     className="input-field"
+                     style={{ textAlign: 'center', border: 'none', background: 'transparent', boxShadow: 'none', padding: '0', fontSize: '1rem', fontWeight: 700 }}
+                     value={trainingSteps}
+                     onChange={(e) => setTrainingSteps(parseInt(e.target.value))}
+                     placeholder="25000"
+                   />
+                   <button 
+                     className="btn-outline" 
+                     style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px' }}
+                     onClick={() => setTrainingSteps(trainingSteps + 1000)}
+                   >
+                     <ChevronRight size={16} />
+                   </button>
+                </div>
+                <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.5rem', fontStyle: 'italic', textAlign: 'center' }}>
+                  <Info size={10} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                  Higher steps = better intelligence, more time.
+                </p>
+              </div>
             </div>
             <button 
               className="btn-primary" 
@@ -269,7 +385,15 @@ const App = () => {
             <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.1rem' }}>
               <ShieldCheck size={18} /> Model Repository
             </h2>
-            <RefreshCw size={14} onClick={fetchModels} style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} />
+            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+               <Trash2 
+                  size={14} 
+                  onClick={handleRequestDeleteAll} 
+                  style={{ cursor: 'pointer', color: 'var(--danger)', opacity: 0.7 }} 
+                  title="Delete All Models" 
+               />
+               <RefreshCw size={14} onClick={fetchModels} style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} />
+            </div>
           </div>
           
           <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.5rem' }}>
@@ -305,6 +429,14 @@ const App = () => {
                       className="edit-icon"
                       style={{ opacity: 0.5, cursor: 'pointer', color: 'var(--text-secondary)' }}
                       onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
+                      title="Rename"
+                   />
+                   <Trash2 
+                      size={14}
+                      className="delete-icon"
+                      style={{ opacity: 0.5, cursor: 'pointer', color: 'var(--danger)' }}
+                      onClick={(e) => handleRequestDelete(m, e)}
+                      title="Delete"
                    />
                 </div>
               </div>
@@ -350,22 +482,33 @@ const App = () => {
         </header>
 
         {(isTraining || isEvaluating) && (
-          <div className="card animate-fade-in" style={{ borderColor: 'var(--accent-primary)', background: 'rgba(168, 218, 220, 0.03)' }}>
-            <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div className="card animate-fade-in" style={{ borderColor: 'var(--accent-primary)', background: 'rgba(168, 218, 220, 0.03)', overflow: 'visible' }}>
+            <h3 style={{ marginBottom: '1rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <Terminal size={16} /> Real-time Telemetry {isEvaluating && '(Evaluation)'}
             </h3>
-            <div style={{ 
-              background: '#05070a', 
-              padding: '1.25rem', 
-              borderRadius: '10px', 
-              fontFamily: 'monospace', 
-              fontSize: '0.8rem', 
-              color: '#4ade80',
-              border: '1px solid #1a2230',
-              maxHeight: '120px',
-              overflowY: 'auto'
-            }}>
-              {isEvaluating ? (evalLog || 'Starting evaluation sequence...') : (lastLog || 'Initializing compute kernels...')}
+            <div style={{ padding: '1rem', background: '#05070a', borderRadius: '8px', border: '1px solid #1a2230' }}>
+               {isTraining && (
+                 <div style={{ marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
+                       <span style={{ color: 'var(--accent-primary)' }}>Training Progress</span>
+                       <span style={{ fontWeight: 700 }}>{trainingProgress}%</span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                       <div style={{ width: `${trainingProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))', transition: 'width 0.5s ease-out' }} />
+                    </div>
+                 </div>
+               )}
+               <div style={{ 
+                 fontFamily: 'monospace', 
+                 fontSize: '0.8rem', 
+                 color: '#4ade80',
+                 maxHeight: '150px',
+                 overflowY: 'auto',
+                 whiteSpace: 'pre-wrap',
+                 wordBreak: 'break-word'
+               }}>
+                 {isEvaluating ? (evalLog || '> Starting evaluation sequence...') : (lastLog || '> Initializing compute kernels...')}
+               </div>
             </div>
           </div>
         )}
@@ -416,54 +559,69 @@ const App = () => {
         </div>
 
         {/* Main Analytics Area */}
-        <section className="card animate-fade-in" style={{ animationDelay: '0.7s', minHeight: '600px', display: 'flex', flexDirection: 'column' }}>
-          <div className="card-header">
-             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.1rem' }}>
-                <BarChart3 size={20} /> Performance Comparison Charts
-             </h3>
-             <div style={{ display: 'flex', gap: '0.8rem' }}>
-                {results?.images?.length > 0 && (
-                  <button 
-                    className="btn-outline" 
-                    style={{ padding: '0.5rem 1rem', fontSize: '0.75rem' }}
-                    onClick={() => {
-                      results.images.forEach((img, i) => {
-                        const link = document.createElement('a');
-                        link.href = `${API_BASE}${img}`;
-                        link.download = `scari_chart_${i+1}.png`;
-                        link.click();
-                      });
-                      addToast('Charts downloaded', 'success');
-                    }}
-                  >
-                    Download All Charts
-                  </button>
-                )}
-             </div>
-          </div>
-          
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', padding: '1rem 0' }}>
+        {/* Charts Section - Full Width Vertical Scroll */}
+        <div style={{ marginTop: '2rem' }}>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.2rem', fontWeight: 700 }}>
+                 <BarChart3 size={22} color="var(--accent-primary)" /> Performance Analysis
+              </h3>
+              {results?.images?.length > 0 && (
+                <button 
+                  className="btn-outline" 
+                  style={{ padding: '0.5rem 1rem', fontSize: '0.75rem' }}
+                  onClick={() => {
+                    results.images.forEach((img, i) => {
+                      const link = document.createElement('a');
+                      link.href = `${API_BASE}${img}`;
+                      link.download = `scari_chart_${i+1}.png`;
+                      link.click();
+                    });
+                  }}
+                >
+                  Download All Charts
+                </button>
+              )}
+           </div>
+
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
              {isEvaluating ? (
-               <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem' }}>
+               <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem' }}>
                   <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.5rem' }}></div>
                   <h4 style={{ color: 'var(--accent-primary)' }}>Simulating Environment...</h4>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Running neural network policy against baseline PID controller</p>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Processing 5,000 steps of neural policy...</p>
                </div>
              ) : results?.images?.length > 0 ? (
                results.images.map((img, i) => (
-                  <div key={i} className="card" style={{ background: '#05070a', padding: '0', overflow: 'hidden', border: '1px solid #1a2230' }}>
-                     <img src={`${API_BASE}${img}`} alt="plot" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                  <div key={i} className="card" style={{ background: '#05070a', padding: '0.5rem', border: '1px solid #1a2230', position: 'relative', overflow: 'hidden', maxWidth: '850px', margin: '0 auto', width: '100%' }}>
+                     <img 
+                        src={`${API_BASE}${img}?t=${Date.now()}`} 
+                        alt="Performance Chart" 
+                        style={{ width: '100%', height: 'auto', display: 'block', borderRadius: '4px' }} 
+                     />
+                     <button 
+                       className="btn-primary"
+                       style={{ position: 'absolute', top: '15px', right: '15px', padding: '0.6rem', opacity: 0.9, zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
+                       onClick={() => {
+                         const link = document.createElement('a');
+                         link.href = `${API_BASE}${img}`;
+                         link.download = `scari_chart_${i+1}.png`;
+                         link.click();
+                       }}
+                       title="Download This Chart"
+                     >
+                        <Download size={20} color="#000" />
+                     </button>
                   </div>
                ))
              ) : (
-                <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem', opacity: 0.3 }}>
-                   <BarChart3 size={64} style={{ marginBottom: '1.5rem' }} />
-                   <h4 style={{ fontSize: '1.2rem' }}>Awaiting Analytical Input</h4>
-                   <p style={{ marginTop: '0.5rem' }}>Select a model and run analysis to populate infrastructure metrics</p>
+                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem', opacity: 0.5 }}>
+                   <BarChart3 size={64} style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }} />
+                   <h4 style={{ fontSize: '1.2rem' }}>Ready for Analysis</h4>
+                   <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>Select a model and click 'Run Analysis' to generate reports</p>
                 </div>
              )}
-          </div>
-        </section>
+           </div>
+        </div>
 
         {/* Explainability Section */}
         {results?.metrics?.decisions && (

@@ -39,6 +39,7 @@ def run_training():
     parser.add_argument('--device', type=str, default='auto', help='cpu or cuda')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--profile', type=str, default='BALANCED', choices=['BALANCED', 'PRODUCTION_SAFE', 'MAX_EFFICIENCY'], help='Reward profile')
+    parser.add_argument('--output-name', type=str, default='scari_final', help='Final model filename')
     
     args = parser.parse_args()
     
@@ -82,7 +83,7 @@ def run_training():
     env = DummyVecEnv([make_env])
     # VecNormalize is now handled internally in Env or here for scaling
     # We'll use SB3 normalization for rewards, but OBS normalization will be internal to the env for transparency
-    env = VecNormalize(env, norm_obs=False, norm_reward=True, clip_obs=10.)
+    env = VecNormalize(env, norm_obs=False, norm_reward=False, clip_obs=10.)
     
     print(f"\n🤖 Agent Configuration:")
     print(f"   - Policy: Attention (Thermal-Aware)")
@@ -122,7 +123,9 @@ def run_training():
         )
         print("\n✅ Training complete!")
         # Save final model heavily distinct from emergency saves
-        model.save(model_dir / "scari_final")
+        print("\n✅ Training complete!")
+        # Save final model
+        model.save(model_dir / args.output_name)
         
     except KeyboardInterrupt:
         print("\n⚠️  Training interrupted manually.")
