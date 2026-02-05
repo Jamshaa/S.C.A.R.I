@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -54,6 +55,7 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 MODELS_DIR = BASE_DIR / "data" / "models"
 OUTPUTS_DIR = BASE_DIR / "outputs" / "eval"
+CONFIGS_DIR = BASE_DIR / "configs"
 
 # Ensure directories exist
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -112,6 +114,30 @@ class TrainingParams(BaseModel):
             raise ValueError("timesteps must be between 1,000 and 10,000,000")
         return v
 
+    @validator('config')
+    def validate_config(cls, value):
+        candidate = Path(value)
+        if candidate.is_absolute():
+            raise ValueError("config must be a path relative to the project root")
+
+        normalized = (BASE_DIR / candidate).resolve()
+        try:
+            normalized.relative_to(CONFIGS_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError("config must be inside the configs directory") from exc
+
+        if normalized.suffix.lower() not in {".yml", ".yaml"}:
+            raise ValueError("config must point to a .yaml or .yml file")
+        return str(candidate)
+
+    @validator('name')
+    def validate_name(cls, value):
+        if not value or len(value) > 128:
+            raise ValueError("name must contain between 1 and 128 characters")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            raise ValueError("name may only contain letters, numbers, dot, underscore, and hyphen")
+        return value
+
 class RenameRequest(BaseModel):
     old_name: str
     new_name: str
@@ -151,8 +177,15 @@ async def get_models():
     return {"models": models}
 
 def sanitize_model_name(name: str) -> str:
-    """Basic sanitization to prevent path traversal."""
-    return os.path.basename(name)
+    """Sanitize and validate model names to prevent path traversal and unsafe filenames."""
+    sanitized = os.path.basename(name)
+    if sanitized != name:
+        raise HTTPException(status_code=400, detail="Invalid model name")
+    if not sanitized or not sanitized.endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Model name must end with .zip")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.zip", sanitized):
+        raise HTTPException(status_code=400, detail="Model name contains invalid characters")
+    return sanitized
 
 @app.post("/models/rename")
 async def rename_model(request: RenameRequest):
@@ -316,6 +349,9 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
 @app.post("/evaluate")
 async def run_evaluation(model_name: str, background_tasks: BackgroundTasks, steps: int = 5000):
     """Run evaluation for a specific model in background."""
+    if steps < 100 or steps > 1_000_000:
+        raise HTTPException(status_code=400, detail="steps must be between 100 and 1,000,000")
+
     safe_name = sanitize_model_name(model_name)
     model_path = MODELS_DIR / safe_name
     if not model_path.exists():
