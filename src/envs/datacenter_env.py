@@ -190,52 +190,53 @@ class DataCenterEnv(gym.Env):
         # Dynamic Reward Function (Uses optimized.yaml values)
         # ---------------------------------------------------------
         
-        # 1. PUE / Energy Reward
-        # We want to minimize PUE (closer to 1.0 is better).
-        # Reward increases as PUE drops below a baseline (e.g. 1.25)
+        # 1. PUE / Energy Reward (Scaled +/- 5.0)
         pue_baseline = 1.25
         pue_improvement = max(0, pue_baseline - pue)
-        pue_reward = self.config.reward.energy_coefficient * (pue_improvement * 10.0)
+        pue_reward = self.config.reward.energy_coefficient * (pue_improvement * 20.0)
         
-        # 1b. Peak Demand Penalty (New in S.C.A.R.I. "Enterprise")
-        # Penalize high instantaneous power peaks to avoid grid stress
-        demand_limit = self.config.physics.p_max * self.num_servers * 0.8
-        demand_penalty = 0.0
-        if total_power > demand_limit:
-            demand_penalty = 0.5 * (total_power - demand_limit) / 100.0
-        
-        # 2. Thermal Stability Reward (Gaussian bell curve)
-        # Incentivize staying near the "sweet spot" (e.g. 45-48C)
-        # We use a fixed center for ideal mechanics, but penalty is dynamic.
-        ideal_temp = 46.0 
-        thermal_reward = 10.0 * np.exp(-0.05 * (avg_temp - ideal_temp)**2)
-
-        # 3. Aggressive Safety Enforcer (The Hard Wall)
-        # Target: NEVER exceed 63.0°C. 
-        # Strategy: Proactive ramp starting at 50°C, extreme wall at 63°C.
-        safety_penalty = 0.0
-        safe_wall = 63.0
-        warning_start = 50.0
-        
-        if max_temp > warning_start:
-            # Proactive exponential penalty as we approach the wall
-            excess = max_temp - warning_start
-            safety_penalty = 10.0 * (np.exp(0.4 * excess) - 1.0)
+        # 2. Thermal Guidance System (Log-Linear)
+        # Target: stay near 46.0°C. 
+        # We use log1p to create a smooth, non-exploding cost gradient.
+        thermal_cost = 0.0
+        target_temp = 46.0
+        if max_temp > target_temp:
+            # 10.0 * log(1 + excess) gives a very stable learning signal
+            thermal_cost = 15.0 * np.log1p(max_temp - target_temp)
             
-            # Massive "Hard Wall" penalty if 63.0 is breached
-            if max_temp >= safe_wall:
-                safety_penalty += 2000.0 + (500.0 * (max_temp - safe_wall))
+        # 3. Dynamic Safety Wall (Capped)
+        # This provides the "Hard Limit" without destroying the gradients.
+        safety_wall_penalty = 0.0
+        hard_limit = 63.0
+        if max_temp >= hard_limit:
+            # Fixed hit + small linear graduation, but capped.
+            safety_wall_penalty = 150.0 + (50.0 * (max_temp - hard_limit))
+            safety_wall_penalty = np.clip(safety_wall_penalty, 0, 300.0)
         
-        # 4. Cooling Action Penalty (Reduced to encourage more cooling use)
-        cooling_action_penalty = 0.001 * np.mean(actions)**2
-        # 5. Health Penalty
-        health_penalty = 1000.0 * (1.0 - avg_health)
+        # 4. IT Load Awareness (Anti-Neglect)
+        neglect_penalty = 0.0
+        it_load_mean = np.mean([s['it_power'] for s in stats]) / self.config.physics.p_max
+        if it_load_mean > 0.8 and np.mean(actions) < 0.15:
+            neglect_penalty = 10.0 # Force exploration of cooling under load
+            
+        # 5. Stability & Health (Legacy scaling)
+        action_jitter_penalty = 0.0
+        if hasattr(self, 'last_action') and self.last_action is not None:
+            action_jitter_penalty = 1.0 * np.mean(np.abs(actions - self.last_action))
+        self.last_action = actions.copy()
         
-        reward = pue_reward + thermal_reward - safety_penalty - cooling_action_penalty - health_penalty - demand_penalty
+        health_penalty = 200.0 * (1.0 - avg_health)
+        demand_limit = self.config.physics.p_max * self.num_servers * 0.8
+        demand_penalty = np.clip(0.5 * (total_power - demand_limit) / 100.0, 0, 5.0) if total_power > demand_limit else 0.0
         
-        # Disaster prevention
+        # Total Reward Assembler
+        # We want PUE benefits to be slightly smaller than thermal costs 
+        # to ensure safety is always the priority.
+        reward = pue_reward - (thermal_cost + safety_wall_penalty + neglect_penalty + action_jitter_penalty + health_penalty + demand_penalty)
+        
+        # Absolute Emergency Termination
         if max_temp >= self.config.physics.max_temp:
-            reward -= 10000.0
+            reward -= 1000.0
             
         return float(reward)
 

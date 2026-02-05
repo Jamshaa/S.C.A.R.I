@@ -531,15 +531,15 @@ const App = () => {
                 label: 'Average Temperature', 
                 value: `${results?.metrics?.scari?.average_temperature.toFixed(1) || '0.0'}°C`, 
                 icon: Thermometer, 
-                color: results ? (results.metrics.scari.average_temperature < 55 ? 'var(--success)' : results.metrics.scari.average_temperature < 65 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
+                color: results ? (results.metrics.scari.average_temperature < 50 ? 'var(--success)' : results.metrics.scari.average_temperature < 60 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
                 delay: '0.5s',
-                subtitle: 'Target: 45-55°C'
+                subtitle: 'Target: < 60°C'
               },
               { 
                 label: 'Safety Status', 
-                value: results ? (results.metrics.scari.safety_violations < 5 ? 'OPTIMAL' : results.metrics.scari.safety_violations < 20 ? 'MODERATE' : 'AGGRESSIVE') : 'STANDBY', 
+                value: results ? (results.metrics.scari.max_temperature < 63 ? 'OPTIMAL' : results.metrics.scari.max_temperature < 75 ? 'MODERATE' : 'CRITICAL') : 'STANDBY', 
                 icon: ShieldCheck, 
-                color: results ? (results.metrics.scari.safety_violations < 5 ? 'var(--success)' : results.metrics.scari.safety_violations < 20 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
+                color: results ? (results.metrics.scari.max_temperature < 63 ? 'var(--success)' : results.metrics.scari.max_temperature < 75 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
                 delay: '0.6s',
                 subtitle: results ? `${results.metrics.scari.safety_violations} overtemp events` : null
               }

@@ -83,7 +83,7 @@ def run_training():
     env = DummyVecEnv([make_env])
     # VecNormalize is now handled internally in Env or here for scaling
     # We'll use SB3 normalization for rewards, but OBS normalization will be internal to the env for transparency
-    env = VecNormalize(env, norm_obs=False, norm_reward=False, clip_obs=10.)
+    env = VecNormalize(env, norm_obs=False, norm_reward=True, clip_obs=10.)
     
     print(f"\n🤖 Agent Configuration:")
     print(f"   - Policy: Attention (Thermal-Aware)")

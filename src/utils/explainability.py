@@ -105,15 +105,17 @@ class DecisionExplainer:
         avg_temp = np.mean(temps)
         avg_action = np.mean(action)
         
-        if avg_temp > 65:
-            reasoning.append(f"⚠️ High average temperature ({avg_temp:.1f}°C) → Aggressive cooling mode")
+        if avg_temp > 63:
+            reasoning.append(f"🔴 CRITICAL: Hard Wall Breach ({avg_temp:.1f}°C) → Emergency Cooling")
         elif avg_temp > 55:
-            reasoning.append(f"📊 Moderate temperature ({avg_temp:.1f}°C) → Balanced cooling")
+            reasoning.append(f"⚠️ High Temperature ({avg_temp:.1f}°C) → Increasing cooling")
+        elif avg_temp > 48:
+            reasoning.append(f"📊 Moderate Temperature ({avg_temp:.1f}°C) → Balanced optimization")
         else:
             reasoning.append(f"✅ Optimal temperature ({avg_temp:.1f}°C) → Minimal cooling needed")
         
         # Identify hottest servers
-        hot_servers = np.where(temps > 60)[0]
+        hot_servers = np.where(temps > 55)[0]
         if len(hot_servers) > 0:
             hottest_idx = np.argmax(temps)
             reasoning.append(
