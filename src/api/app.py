@@ -31,23 +31,31 @@ logger.setLevel(logging.INFO)
 
 app = FastAPI(title="S.C.A.R.I API")
 
-# Enable CORS for specific frontend origins
+# Enable CORS for frontend origins
+# Supports: localhost, Codespaces, and production deployments
 origins = [
+    # Local development (explicit)
     "http://localhost",
+    "http://127.0.0.1",
     "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # Common dev ports
     "http://localhost:5174",
     "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:3000",
 ]
+
+# Allow GitHub Codespaces and similar patterns via a regex
+# Use allow_origin_regex to match any subdomain that ends with .app.github.dev
+origin_regex = r"^https?://[a-z0-9-]+-\d+\.app\.github\.dev(:\d+)?$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Base directories
@@ -382,6 +390,224 @@ async def get_explanations():
     """Get decision explanations for demo."""
     from src.api.sample_decisions import SAMPLE_DECISIONS
     return {"decisions": SAMPLE_DECISIONS}
+
+# ============================================================================
+# DATA CENTER CALCULATOR ENDPOINTS
+# ============================================================================
+
+class DataCenterParams(BaseModel):
+    """Parameters for datacenter analysis"""
+    num_servers: int
+    topology: str = "spine_leaf"
+    annual_power_kwh: float = 1000000
+    baseline_pue: float = 1.67
+    optimized_pue: float = 1.1
+    region: str = "EU"
+
+    @validator('num_servers')
+    def validate_servers(cls, v):
+        if v < 1 or v > 100000:
+            raise ValueError("num_servers must be between 1 and 100,000")
+        return v
+
+    @validator('topology')
+    def validate_topology(cls, v):
+        valid_topologies = ["fat_tree", "clos", "spine_leaf", "three_tier"]
+        if v not in valid_topologies:
+            raise ValueError(f"topology must be one of {valid_topologies}")
+        return v
+
+class ROIParams(BaseModel):
+    """Parameters for ROI analysis"""
+    num_servers: int
+    investment_eur: float
+    annual_savings_eur: float
+
+    @validator('investment_eur', 'annual_savings_eur')
+    def validate_positive(cls, v):
+        if v < 0:
+            raise ValueError("Values must be non-negative")
+        return v
+
+@app.post("/calculator/embodied-carbon")
+async def calculate_embodied_carbon(params: DataCenterParams):
+    """
+    Calculate embodied carbon emissions from datacenter hardware.
+    Includes servers, switches, cooling systems, and infrastructure.
+    """
+    try:
+        result = greendc.calculate_embodied_carbon(
+            num_servers=params.num_servers,
+            topology=params.topology
+        )
+        
+        logger.info(f"Calculated embodied carbon for {params.num_servers} servers")
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Embodied carbon calculation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calculator/network-topology")
+async def analyze_network_topology(params: DataCenterParams):
+    """
+    Analyze network topology requirements and carbon footprint.
+    Supports Fat-Tree, Clos, Spine-Leaf, and 3-Tier architectures.
+    """
+    try:
+        result = greendc.calculate_network_topology(
+            num_servers=params.num_servers,
+            topology=params.topology
+        )
+        
+        logger.info(f"Analyzed {params.topology} topology for {params.num_servers} servers")
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Network topology analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calculator/scenario-comparison")
+async def compare_scenarios(params: DataCenterParams):
+    """
+    Compare operational carbon across baseline vs. optimized scenarios.
+    Calculates energy savings, cost reduction, and environmental impact.
+    """
+    try:
+        result = greendc.compare_scenarios(
+            num_servers=params.num_servers,
+            baseline_pue=params.baseline_pue,
+            optimized_pue=params.optimized_pue,
+            annual_power_kwh=params.annual_power_kwh
+        )
+        
+        logger.info(f"Compared scenarios for {params.num_servers} servers")
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Scenario comparison error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calculator/roi-analysis")
+async def analyze_roi(params: ROIParams):
+    """
+    Financial return on investment analysis.
+    Calculates payback period, ROI percentage, and net benefit over 10 years.
+    """
+    try:
+        result = greendc.roi_analysis(
+            num_servers=params.num_servers,
+            investment_eur=params.investment_eur,
+            annual_savings_eur=params.annual_savings_eur
+        )
+        
+        logger.info(f"ROI analysis for {params.num_servers} servers")
+        return {
+            "status": "success",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"ROI analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calculator/comprehensive")
+async def comprehensive_analysis(params: DataCenterParams):
+    """
+    Comprehensive datacenter sustainability analysis.
+    Combines operational, embodied, and network topology analysis.
+    """
+    try:
+        operational = greendc.compare_scenarios(
+            num_servers=params.num_servers,
+            baseline_pue=params.baseline_pue,
+            optimized_pue=params.optimized_pue,
+            annual_power_kwh=params.annual_power_kwh
+        )
+        
+        embodied = greendc.calculate_embodied_carbon(
+            num_servers=params.num_servers,
+            topology=params.topology
+        )
+        
+        network = greendc.calculate_network_topology(
+            num_servers=params.num_servers,
+            topology=params.topology
+        )
+        
+        # Calculate total carbon footprint
+        total_carbon = (
+            embodied["total_embodied_co2_kg"] +
+            embodied["annual_amortized_co2_kg"] +
+            operational["scenario_comparison"]["baseline"]["annual_co2_kg"]
+        )
+        
+        logger.info(f"Comprehensive analysis for {params.num_servers} servers, {params.topology}")
+        return {
+            "status": "success",
+            "data": {
+                "operational": operational,
+                "embodied": embodied,
+                "network": network,
+                "summary": {
+                    "total_annual_carbon_kg": round(total_carbon, 2),
+                    "datacenter_size": embodied["datacenter_size"],
+                    "network_topology": params.topology,
+                    "total_switches": network["total_switches"],
+                    "breakeven_years": operational["improvements"].get("breakeven_years"),
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"Comprehensive analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/calculator/info")
+async def calculator_info():
+    """
+    Get information about available calculators and their capabilities.
+    """
+    return {
+        "version": "2.0.0",
+        "calculators": [
+            {
+                "name": "Embodied Carbon",
+                "endpoint": "/calculator/embodied-carbon",
+                "description": "Calculate CO2 emissions from hardware manufacturing"
+            },
+            {
+                "name": "Network Topology",
+                "endpoint": "/calculator/network-topology",
+                "description": "Analyze network architecture and its carbon impact"
+            },
+            {
+                "name": "Scenario Comparison",
+                "endpoint": "/calculator/scenario-comparison",
+                "description": "Compare baseline vs. optimized operational efficiency"
+            },
+            {
+                "name": "ROI Analysis",
+                "endpoint": "/calculator/roi-analysis",
+                "description": "Financial return on investment calculations"
+            },
+            {
+                "name": "Comprehensive Analysis",
+                "endpoint": "/calculator/comprehensive",
+                "description": "Complete datacenter sustainability analysis"
+            }
+        ],
+        "supported_topologies": ["fat_tree", "clos", "spine_leaf", "three_tier"],
+        "default_parameters": {
+            "electricity_price_eur_kwh": greendc.price,
+            "carbon_intensity_kg_kwh": greendc.intensity,
+            "region": greendc.region
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,0 +1,83 @@
+version: '3.9'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scari-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENV=${ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./configs:/app/configs
+    networks:
+      - scari-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    command: >
+      sh -c "echo 'Starting S.C.A.R.I Backend...' &&
+             uvicorn src.api.app:app 
+             --host 0.0.0.0 
+             --port 8000 
+             --reload"
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.frontend
+    container_name: scari-frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8000}
+      - NODE_ENV=${NODE_ENV:-production}
+    volumes:
+      - ./ui/src:/app/src
+      - ./ui/public:/app/public
+    networks:
+      - scari-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    command: npm run dev
+
+  # Optional: Nginx Reverse Proxy (for production)
+  nginx:
+    image: nginx:alpine
+    container_name: scari-proxy
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/ssl:/etc/nginx/ssl:ro
+    networks:
+      - scari-network
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  scari-network:
+    driver: bridge
+
+volumes:
+  data:
+  outputs:

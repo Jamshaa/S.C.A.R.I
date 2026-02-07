@@ -3,10 +3,11 @@ import {
   Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
   Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
   Download, AlertCircle, CheckCircle2, Loader2, Info,
-  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf
+  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
+  Boxes
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:8000';
+import DataCenterCalculator from './DataCenterCalculator';
+import { API_BASE } from './config';
 
 const fetchWithRetry = async (url, options = {}, retries = 3) => {
   for (let i = 0; i < retries; i++) {
@@ -32,26 +33,33 @@ const Toast = ({ message, type }) => (
 );
 
 const App = () => {
+  // Core Model State
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
+  
+  // Training State
   const [isTraining, setIsTraining] = useState(false);
-  const [isEvaluating, setIsEvaluating] = useState(false);
-  const [lastLog, setLastLog] = useState('');
-  const [results, setResults] = useState(null);
-  const [trainingSteps, setTrainingSteps] = useState(25000);
-  const [trainingName, setTrainingName] = useState('scari_v1');
+  const [trainingSteps, setTrainingSteps] = useState(600000);
+  const [trainingName, setTrainingName] = useState('scari_thermal_safe');
   const [trainingProgress, setTrainingProgress] = useState(0);
+  const [lastLog, setLastLog] = useState('');
+  
+  // Evaluation State
+  const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalSteps, setEvalSteps] = useState(5000);
   const [evalLog, setEvalLog] = useState('');
-  const [toasts, setToasts] = useState([]);
+  const [results, setResults] = useState(null);
+  
+  // UI State
   const [selectedDecision, setSelectedDecision] = useState(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState('');
   const [newName, setNewName] = useState('');
-  // Removed duplicates
   const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(''); // 'ALL' or modelName
+  const [deleteTarget, setDeleteTarget] = useState('');
+  const [toasts, setToasts] = useState([]);
   const [theme, setTheme] = useState('dark');
+  const [mainTab, setMainTab] = useState('analytics');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -467,20 +475,79 @@ const App = () => {
 
       {/* Main Content */}
       <main className="main-content">
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h2 className="title-gradient" style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>Mission Control</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-               <Activity size={16} color="var(--accent-secondary)" />
-               Real-time Telemetry & Neural Policy Management
+        {/* Header with Navigation */}
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '2rem', marginBottom: '2rem' }}>
+          <div style={{ flex: 1 }}>
+            <h2 className="title-gradient" style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '0.5rem' }}>
+              {mainTab === 'analytics' ? '🎯 Mission Control' : '🌍 Sustainability Hub'}
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+               <Activity size={16} color="var(--accent-secondary)" style={{ flexShrink: 0 }} />
+               {mainTab === 'analytics' ? 'AI-Powered Thermal Management & Neural Policy Intelligence' : 'Datacenter Sustainability & ROI Analytics'}
             </p>
           </div>
-          <div className={`status-badge ${isTraining ? 'active' : 'idle'}`} style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}>
-             <div className={isTraining ? 'spinner' : ''} style={{ width: 8, height: 8, borderRadius: '50%', background: 'currentColor', border: isTraining ? 'none' : '' }} />
-             {isTraining ? 'NEURAL TRAINING ACTIVE' : 'SYSTEM STANDBY'}
+          
+          {/* Tab Navigation */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '0.5rem', 
+            background: 'var(--glass-bg-thin)', 
+            padding: '0.6rem', 
+            borderRadius: '14px', 
+            border: '1px solid var(--glass-border)',
+            backdropFilter: 'blur(10px)',
+            flexShrink: 0
+          }}>
+            <button
+              onClick={() => setMainTab('analytics')}
+              style={{
+                padding: '0.65rem 1.3rem',
+                background: mainTab === 'analytics' ? 'var(--gradient-main)' : 'transparent',
+                color: mainTab === 'analytics' ? '#000' : 'var(--text-secondary)',
+                border: mainTab === 'analytics' ? 'none' : '1px solid transparent',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                fontWeight: mainTab === 'analytics' ? 700 : 600,
+                letterSpacing: '0.03em',
+                transition: 'all 0.3s ease',
+                boxShadow: mainTab === 'analytics' ? '0 4px 15px var(--accent-glow)' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              <BarChart3 size={16} />
+              <span>Analytics</span>
+            </button>
+            
+            <button
+              onClick={() => setMainTab('calculator')}
+              style={{
+                padding: '0.65rem 1.3rem',
+                background: mainTab === 'calculator' ? 'var(--gradient-success)' : 'transparent',
+                color: mainTab === 'calculator' ? '#000' : 'var(--text-secondary)',
+                border: mainTab === 'calculator' ? 'none' : '1px solid transparent',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                fontWeight: mainTab === 'calculator' ? 700 : 600,
+                letterSpacing: '0.03em',
+                transition: 'all 0.3s ease',
+                boxShadow: mainTab === 'calculator' ? '0 4px 15px rgba(0, 255, 136, 0.4)' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+            >
+              <Leaf size={16} />
+              <span>Calculator</span>
+            </button>
           </div>
         </header>
 
+        {mainTab === 'analytics' && (
+          <>
         {(isTraining || isEvaluating) && (
           <div className="card animate-fade-in" style={{ borderColor: 'var(--accent-primary)', background: 'rgba(168, 218, 220, 0.03)', overflow: 'visible' }}>
             <h3 style={{ marginBottom: '1rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -778,6 +845,12 @@ const App = () => {
               </div>
             </div>
           </section>
+        )}
+          </>
+        )}
+
+        {mainTab === 'calculator' && (
+          <DataCenterCalculator onToast={addToast} />
         )}
       </main>
 

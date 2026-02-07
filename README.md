@@ -33,6 +33,22 @@ SCARI/
 └── requirements.txt    # Dependencies
 ```
 
+## ⚡ 30-Second Deploy
+
+**Deploy entire system with one command:**
+
+```bash
+bash deploy.sh docker
+# Frontend will be at: http://localhost:5173
+# API will be at: http://localhost:8000
+```
+
+✅ **No setup required!** Database, backend, frontend - all automated.
+
+👉 **[See all deployment options and make commands →](EASY_DEPLOY.md)**
+
+---
+
 ## 🛠️ Quick Start
 
 ### 1. Installation
@@ -55,11 +71,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Using Docker:**
+**Using Docker (Recommended for quick start):**
 
 ```bash
-docker build -t scari-app .
-docker run -p 8000:8000 scari-app
+bash deploy.sh docker
+# or manually:
+docker-compose up -d
 ```
 
 ### 2. Launching the System

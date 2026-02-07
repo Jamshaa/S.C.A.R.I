@@ -2,24 +2,24 @@ physics:
   ambient_temp: 25.0
   p_idle: 200.0
   p_max: 500.0
-  max_temp: 85.0
+  max_temp: 60.0
   min_temp: 20.0
   server_thermal_mass: 1500.0
   max_temp_change_per_second: 2.0
 
 cooling:
   mode: "AIR"
-  max_capacity: 600.0
-  p_max_cooling: 150.0
+  max_capacity: 650.0
+  p_max_cooling: 175.0
 
 reward:
-  target_temp_min: 50.0
-  target_temp_max: 60.0
-  safety_limit: 75.0
-  critical_limit: 85.0
-  energy_weight: 0.8
-  safety_weight: 2.0
-  stability_weight: 0.2
+  target_temp_min: 45.0
+  target_temp_max: 55.0
+  safety_limit: 60.0
+  critical_limit: 65.0
+  energy_weight: 0.1
+  safety_weight: 5.0
+  stability_weight: 0.5
 
 training:
   learning_rate: 0.0003

@@ -4,48 +4,49 @@ physics:
   p_idle: 200.0
   p_max: 800.0
   r_coeff: 0.5
-  max_temp: 95.0
+  max_temp: 60.0              # ⚠️ HARD LIMIT: Never exceed 60°C
   min_temp: 22.0
   max_temp_change_per_second: 5.0
 
 cooling:
-  # Realistic industrial cooling
-  max_fan_power: 500.0
-  max_pump_power: 80.0
-  base_pump_power: 15.0
-  air_cooling_capacity: 8000.0 # Doubled for faster heat removal
-  liquid_cooling_capacity: 20000.0
-  natural_convection: 100.0
+  # Realistic industrial cooling - CONSERVATIVE settings
+  max_fan_power: 550.0        # Increased for better thermal control
+  max_pump_power: 100.0       # Enhanced cooling
+  base_pump_power: 20.0
+  air_cooling_capacity: 9000.0   
+  liquid_cooling_capacity: 22000.0
+  natural_convection: 120.0
 
 reward:
-  # Stability & Safety First (Aggressive Hard Wall)
-  energy_coefficient: 0.2 # Lowered to prioritize safety over savings
-  safe_threshold: 63.0
-  critical_limit: 75.0
-  thermal_penalty_coefficient: 500.0 # Increased significantly
-  emergency_penalty: 10000.0
-  energy_efficiency_bonus: 2.0
+  # CONSERVATIVE: Thermal Safety is ALWAYS Priority #1
+  energy_coefficient: 0.15           # Reduced - safety first
+  safe_threshold: 60.0               # Hard limit
+  critical_limit: 65.0               # Should never reach
+  thermal_penalty_coefficient: 600.0 # Enhanced
+  emergency_penalty: 15000.0         # Severe
+  energy_efficiency_bonus: 1.5       # Secondary
 
 training:
-  timesteps: 500000
-  learning_rate: 0.0003
+  timesteps: 600000          # Increased for convergence
+  learning_rate: 0.0002      # More stable learning
   n_steps: 1024
   batch_size: 128
-  gamma: 0.999
-  gae_lambda: 0.95
-  ent_coef: 0.01 # Increased from 0.001 to promote discovery of cooling actions
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  n_epochs: 10
-  clip_range: 0.2
+  gamma: 0.9995              # Higher gamma for long-term planning
+  gae_lambda: 0.96           # Slightly higher for stability
+  ent_coef: 0.015            # Encourage exploration
+  vf_coef: 0.6               # Better value estimation
+  max_grad_norm: 0.4         # More conservative gradient updates
+  n_epochs: 12               # More refinement
+  clip_range: 0.15           # Tighter clipping for stability
   normalize_advantage: true
   normalize_observation: true
 
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_load_change_per_step: 0.10 # More dynamic workload
-  min_initial_load: 0.4 # Realistic DC load range
-  max_initial_load: 0.95 # High utilization
-  load_std: 0.15 # Significant workload variation
+  max_load_change_per_step: 0.08     # Slightly smoother loads
+  min_initial_load: 0.35             # Realistic range
+  max_initial_load: 0.90             # High but not extreme
+  load_std: 0.12                     # Conservative variation
+  max_steps: 10000                   # Reasonable episode length
   episode_length: 2500 # Longer episodes for better learning
