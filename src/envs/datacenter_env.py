@@ -13,8 +13,17 @@ logger = logging.getLogger(__name__)
 class DataCenterEnv(gym.Env):
     """Gymnasium environment for datacenter thermal management RL."""
     
-    metadata = {'render_modes': []}
-    
+    metadata = {'render_modes': ['human']}
+
+    def render(self):
+        """Render the environment to the screen."""
+        if self.render_mode == 'human':
+            pass # We don't have a visualizer here
+
+    def close(self):
+        """Clean up resources."""
+        pass
+
     def __init__(self, config: Optional[Config] = None):
         """
         Initialize the environment.

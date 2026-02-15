@@ -1,122 +1,99 @@
-# SCARI - Smart Cooling & AI-driven Resource Infrastructure
+# S.C.A.R.I - Smart Cooling & AI-driven Resource Infrastructure
 
-![SCARI Banner](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
-![SCARI Banner](https://img.shields.io/badge/Framework-Gymnasium-blue)
-![SCARI Banner](https://img.shields.io/badge/Algorithm-PPO-orange)
-![SCARI Banner](https://img.shields.io/badge/License-MIT-green)
+![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
+![Framework](https://img.shields.io/badge/Framework-Gymnasium-blue)
+![Algorithm](https://img.shields.io/badge/Algorithm-PPO-orange)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-**SCARI** is an enterprise-grade Reinforcement Learning framework engineered for **Autonomous Thermal Management** in hyperscale datacenters. It leverages advanced Multi-Head Self-Attention architectures to dynamically optimize cooling resource allocation, achieving superior PUE (Power Usage Effectiveness) while ensuring rigorous hardware safety standards.
-
-## 🚀 Enterprise Features
-
-- **Autonomous Thermal Regulation**: Self-learning policies that adapt to variable workloads and ambient conditions in real-time.
-- **Physics-Informed Simulation**: High-fidelity environmental modeling including thermal inertia, recirculation, and Arrhenius-based component aging.
-- **Production-Ready Architecture**:
-  - **Secure API**: Hardened FastAPI backend with Pydantic validation and path sanitization.
-  - **Sustainability (GreenDC)**: Built-in calculator logic for CO2 reduction, forest-equivalents, and ROI.
-  - **Explainable AI (XAI)**: Specialized dashboard providing decision-reasoning and feature attribution.
-  - **Modern UI/UX**: Professional Glassmorphism interface with dark/light modes and telemetry visualization.
-
-## 📁 System Architecture
-
-```text
-SCARI/
-├── configs/            # Physics & Hyperparameters
-├── data/               # Model Artifacts (.zip)
-├── src/
-│   ├── api/            # FastAPI + GreenDC Core
-│   ├── envs/           # Gymnasium Simulation
-│   ├── models/         # Neural Architectures
-│   └── utils/          # Visualization & Math
-├── tests/              # Pytest Suite
-├── ui/                 # React/Vite Dashboard
-└── requirements.txt    # Dependencies
-```
-
-## ⚡ 30-Second Deploy
-
-**Deploy entire system with one command:**
-
-```bash
-bash deploy.sh docker
-# Frontend will be at: http://localhost:5173
-# API will be at: http://localhost:8000
-```
-
-✅ **No setup required!** Database, backend, frontend - all automated.
-
-👉 **[See all deployment options and make commands →](EASY_DEPLOY.md)**
+**S.C.A.R.I** es un framework de Reinforcement Learning para la **gestión térmica autónoma** de datacenters.
 
 ---
 
-## 🛠️ Quick Start
-
-### 1. Installation
-
-**Using Python Virtual Environment:**
+## 🔧 Primera Instalación
 
 ```bash
-# Clone repository
-git clone https://github.com/organization/SCARI.git
-cd SCARI
+# 1. Clonar el repositorio
+git clone https://github.com/tu-usuario/S.C.A.R.I.git
+cd S.C.A.R.I
 
-# Setup environment
+# 2. Crear entorno virtual Python
 python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
 
-# Install dependencies
+# 3. Activar entorno virtual
+.\venv\Scripts\activate       # Windows
+source venv/bin/activate      # Linux/Mac
+
+# 4. Instalar dependencias Python
 pip install -r requirements.txt
+
+# 5. Instalar dependencias Frontend
+cd ui
+npm install
+cd ..
 ```
 
-**Using Docker (Recommended for quick start):**
+---
+
+## 🚀 Cómo Ejecutar
+
+### 1. Backend (API)
 
 ```bash
-bash deploy.sh docker
-# or manually:
-docker-compose up -d
+# Activar entorno virtual
+.\venv\Scripts\activate
+
+# Iniciar servidor
+python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 2. Launching the System
+**URL**: http://127.0.0.1:8000
 
-**Backend Service:**
+### 2. Frontend (Dashboard)
 
-```bash
-uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-**Training (CLI):**
-
-```bash
-python -m src.train --config configs/optimized.yaml
-```
-
-**Frontend Dashboard:**
+En otra terminal:
 
 ```bash
 cd ui
-npm install
 npm run dev
 ```
 
-## 📈 Performance Benchmarks
-
-Deployed in simulated Tier-4 datacenter environments, SCARI consistently outperforms traditional PID controllers:
-
-| Metric                     | Legacy (PID) | SCARI (AI)    | Improvement                 |
-| -------------------------- | ------------ | ------------- | --------------------------- |
-| **Average PUE**            | 1.139        | **1.011**     | **Excellent**               |
-| **Total Energy Savings**   | Baseline     | **~11.0%**    | Significant Cost Reduction  |
-| **Thermal Violation Risk** | Moderate     | **Near Zero** | Enhanced Hardware Longevity |
-
-## 🛡️ Security & Quality
-
-- **CI/CD Pipeline**: Automated testing via GitHub Actions.
-- **Code Quality**: Strict linting and type checking validation.
-- **Secure by Design**: Input sanitization and minimized attack surface.
+**URL**: http://localhost:5173
 
 ---
 
-_© 2024 SCARI Project. All Rights Reserved._
+## 📁 Estructura
+
+```
+S.C.A.R.I/
+├── configs/           # Configuración de entrenamiento
+├── data/models/       # Modelos entrenados (.zip)
+├── src/
+│   ├── api/           # Backend FastAPI
+│   ├── envs/          # Simulación térmica
+│   └── utils/         # Visualización y XAI
+├── ui/                # Frontend React/Vite
+└── outputs/eval/      # Resultados de evaluación
+```
+
+## 🎯 Características
+
+- **Control Térmico Autónomo**: IA que se adapta a cambios de carga
+- **Analítica de Sostenibilidad**: Seguimiento de CO2 y ahorro energético
+- **Dashboard de IA Explicable**: Razonamiento de las decisiones
+- **Interfaz Moderna**: Glassmorphism con modos claro/oscuro
+
+## 📈 Rendimiento
+
+PUE promedio: **1.011** | Ahorro energético: **~11%**
+
+---
+
+## 🐳 Docker (Opcional)
+
+```bash
+docker-compose up -d
+```
+
+---
+
+**Documentación API**: http://localhost:8000/docs

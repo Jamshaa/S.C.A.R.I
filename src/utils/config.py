@@ -97,7 +97,7 @@ class Config:
         """Load configuration from a YAML file."""
         path = Path(path)
         try:
-            with open(path, 'r') as f:
+            with open(path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f)
             env_data = data.get('environment', data.get('env', {}))
             return cls(
@@ -125,7 +125,7 @@ class Config:
         """Save configuration to a JSON file."""
         path = Path(path)
         try:
-            with open(path, 'w') as f:
+            with open(path, 'w', encoding='utf-8') as f:
                 json.dump(self.to_dict(), f, indent=2)
         except Exception as e:
             logger.error(f"Error saving config to {path}: {e}")

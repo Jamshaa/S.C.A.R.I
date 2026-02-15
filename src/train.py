@@ -66,7 +66,11 @@ def run_training():
     except Exception as e:
         logger.error(f"Failed to load config: {e}. Falling back to default.")
         cfg = DEFAULT_CONFIG
-        cfg.reward.profile = args.profile # Ensure profile is set even if config fails
+        # Re-apply CLI overrides even after fallback
+        if args.timesteps:
+            cfg.training.timesteps = args.timesteps
+        if args.profile:
+            cfg.reward.profile = args.profile
 
     print(f"\n📂 Environment Setup:")
     print(f"   - Config: {args.config}")
@@ -142,12 +146,28 @@ def run_training():
     finally:
         # Always save env stats
         try:
-            env.save(model_dir / "vec_normalize.pkl")
+            if 'env' in locals():
+                env.close()
+            
+            # Ensure directory exists before saving config
+            model_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save environment normalization stats if available
+            if 'env' in locals() and hasattr(env, 'save'):
+                 env.save(model_dir / "vec_normalize.pkl")
+            
             cfg.to_json(model_dir / "config.json")
             print(f"📝 Config and Env stats saved to {model_dir}")
         except Exception as e:
             logger.error(f"Failed to save final artifacts: {e}")
-
+        
+        # Force flush to ensure backend reads everything
+        import sys
+        sys.stdout.flush()
+        sys.stderr.flush()
 
 if __name__ == "__main__":
     run_training()
+    # Explicit exit to prevent hanging threads or cleanup issues
+    import sys
+    sys.exit(0)

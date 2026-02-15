@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 import json
+from datetime import datetime
+import shutil
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -214,6 +216,8 @@ def run_train_task(params: TrainingParams):
     status.progress = 0
     status.current_step = 0
     status.total_steps = params.timesteps
+    logger.info(f"STARTING training task: {params.name} for {params.timesteps} steps")
+    
     try:
         venv_python = get_python_executable()
             
@@ -238,10 +242,49 @@ def run_train_task(params: TrainingParams):
             text=True,
             encoding="utf-8",
             cwd=str(BASE_DIR),
-            env=env
+            env=env,
+            bufsize=1, # Line buffered
+            universal_newlines=True
         )
-        for line in process.stdout:
+
+        # Threaded reader to avoid blocking on Windows
+        def reader(pipe, queue):
+            try:
+                with pipe:
+                    for line in iter(pipe.readline, ''):
+                        queue.put(line)
+            finally:
+                queue.put(None)
+
+        import queue
+        q = queue.Queue()
+        t = threading.Thread(target=reader, args=(process.stdout, q))
+        t.daemon = True
+        t.start()
+
+        # Read from queue
+        while True:
+            try:
+                line = q.get(timeout=1) # Non-blocking with timeout
+            except queue.Empty:
+                if process.poll() is not None:
+                    break
+                continue
+
+            if line is None:
+                break
+
             status.last_log = line.strip()
+            
+            # Explicit success detection
+            if "Training complete" in line:
+                status.progress = 100
+                logger.info(f"DETECTED completion signature for {params.name}")
+                
+            # Explicit failure detection
+            if "Traceback" in line or "Error:" in line:
+                logger.error(f"DETECTED error in training: {line.strip()}")
+
             # Parse progress from SB3 logs
             if "total_timesteps" in line:
                 try:
@@ -250,11 +293,24 @@ def run_train_task(params: TrainingParams):
                     if len(parts) >= 3:
                         timesteps = int(parts[2].strip())
                         status.current_step = timesteps
-                        status.progress = min(100, int((timesteps / params.timesteps) * 100))
+                        # cap at 99 until explicit finish
+                        status.progress = min(99, int((timesteps / params.timesteps) * 100))
                 except:
                     pass
+        
+        # Ensure process finishes
+        process.wait()
+        if process.returncode == 0:
+            status.progress = 100
+            status.last_log = "Training completed successfully."
+            logger.info(f"COMPLETED training task: {params.name}")
+        else:
+            status.last_log = f"Training failed with exit code {process.returncode}"
+            logger.error(f"FAILED training task: {params.name} (exit code {process.returncode})")
+            
     except Exception as e:
         status.last_log = f"Error: {str(e)}"
+        logger.error(f"CRASHED training task: {str(e)}")
     finally:
         status.is_training = False
 
@@ -275,18 +331,100 @@ async def get_status():
         "progress": status.progress
     }
 
+@app.get("/history")
+async def get_history():
+    """List all available historical evaluations."""
+    history = []
+    try:
+        # Scan OUTPUTS_DIR for timestamped directories
+        for entry in sorted(OUTPUTS_DIR.iterdir(), reverse=True):
+            if entry.is_dir() and (entry / "metrics.json").exists():
+                try:
+                    with open(entry / "metrics.json", "r") as f:
+                        metrics = json.load(f)
+                    
+                    # Extract key summary data
+                    summary = {
+                        "id": entry.name,
+                        "timestamp": entry.name,
+                        "pue": metrics['scari'].get('average_pue'),
+                        "savings": ((metrics['baseline']['total_power_consumption'] - metrics['scari']['total_power_consumption']) / metrics['baseline']['total_power_consumption']) * 100,
+                        "steps": metrics['scari'].get('total_steps', 5000),
+                        "model": "scari_model" # Could store this in metrics if needed
+                    }
+                    history.append(summary)
+                except Exception as e:
+                    logger.warning(f"Failed to parse history entry {entry.name}: {e}")
+                    continue
+        return {"history": history}
+    except Exception as e:
+        logger.error(f"Error listing history: {e}")
+        return {"history": []}
+
+@app.get("/history/{eval_id}")
+async def get_historical_result(eval_id: str):
+    """Get full results for a specific historical evaluation."""
+    # Validate ID format to prevent traversal (basic check)
+    if ".." in eval_id or "/" in eval_id or "\\" in eval_id:
+        raise HTTPException(status_code=400, detail="Invalid evaluation ID")
+        
+    eval_dir = OUTPUTS_DIR / eval_id
+    metrics_path = eval_dir / "metrics.json"
+    
+    if not eval_dir.exists() or not metrics_path.exists():
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+        
+    try:
+        with open(metrics_path, "r") as f:
+            metrics = json.load(f)
+    except Exception as e:
+        logger.error(f"Error reading historical metrics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse results")
+        
+    # List images for this specific run
+    images = []
+    try:
+        for f in sorted(eval_dir.glob("*.png")):
+            if f.stat().st_size > 0:
+                # Need to mount this specific directory or serve dynamically
+                # Ideally, we serve static files from OUTPUTS_DIR and include the subdir in path
+                images.append(f"/outputs/eval/{eval_id}/{f.name}")
+    except Exception:
+        pass
+        
+    # Calculate sustainability impact
+    green_impact = greendc.calculate_impact(
+        baseline_power_w=metrics['baseline']['total_power_consumption'],
+        scari_power_w=metrics['scari']['total_power_consumption'],
+        simulation_steps=metrics['scari'].get('total_steps', 5000)
+    )
+    
+    return {
+        "id": eval_id,
+        "metrics": metrics,
+        "images": images,
+        "sustainability": green_impact
+    }
+
 def run_eval_task(model_path: Path, steps: int, output_dir: Path):
     global eval_status
     eval_status.is_evaluating = True
     eval_status.error = ""
     eval_status.result = None
     
+    # Generate timestamped subdirectory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = output_dir / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Starting evaluation task in {run_dir}")
+    
     venv_python = get_python_executable()
 
     cmd = [
         venv_python, "-m", "src.evaluate",
         "--model", str(model_path),
-        "--output", str(output_dir),
+        "--output", str(run_dir),
         "--steps", str(steps)
     ]
     
@@ -310,10 +448,22 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
         process.wait()
         if process.returncode == 0:
             # Load results
-            metrics_path = output_dir / "metrics.json"
+            metrics_path = run_dir / "metrics.json"
             if metrics_path.exists():
                 with open(metrics_path, "r") as f:
                     eval_status.result = json.load(f)
+                    
+                # OPTIONAL: Create/Update 'latest' symlink or copy for backward comp
+                # copying explicitly to 'latest' folder or root might be easier on Windows than symlinks
+                try:
+                    latest_metrics = output_dir / "metrics.json"
+                    shutil.copy2(metrics_path, latest_metrics)
+                    # Also copy images to root for legacy endpoint if needed, 
+                    # but better to rely on new logic. 
+                    # For now, let's keep get_results working by copying metrics.json to root
+                except Exception as e:
+                    logger.warning(f"Failed to update latest metrics link: {e}")
+
         else:
             eval_status.error = f"Evaluation process exited with code {process.returncode}"
     except Exception as e:

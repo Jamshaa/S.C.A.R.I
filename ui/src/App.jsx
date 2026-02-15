@@ -18,6 +18,8 @@ const fetchWithRetry = async (url, options = {}, retries = 3) => {
       if (res.status >= 400 && res.status < 500) throw new Error(await res.text());
       throw new Error(`Request failed: ${res.status}`); 
     } catch (e) {
+      // Don't retry if request was aborted
+      if (e.name === 'AbortError') return null;
       if (i === retries - 1) throw e;
       await new Promise(r => setTimeout(r, 1000 * (i + 1))); 
     }
@@ -61,17 +63,40 @@ const App = () => {
   const [theme, setTheme] = useState('dark');
   const [mainTab, setMainTab] = useState('analytics');
 
+  // State refs for polling (avoids stale closures)
+  const isTrainingRef = React.useRef(isTraining);
+  const isEvaluatingRef = React.useRef(isEvaluating);
+  
+  React.useEffect(() => {
+    isTrainingRef.current = isTraining;
+  }, [isTraining]);
+
+  React.useEffect(() => {
+    isEvaluatingRef.current = isEvaluating;
+  }, [isEvaluating]);
+
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-
+  // Polling loop
   useEffect(() => {
     fetchModels();
-    const interval = setInterval(fetchStatus, 2000);
-    return () => clearInterval(interval);
+    
+    let isMounted = true;
+    const poll = async () => {
+      if (!isMounted) return;
+      await fetchStatus();
+      if (isMounted) setTimeout(poll, 2000);
+    };
+    
+    const timeout = setTimeout(poll, 2000);
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -84,9 +109,10 @@ const App = () => {
   const fetchModels = async () => {
     try {
       const res = await fetchWithRetry(`${API_BASE}/models`);
+      if (!res) return;
       const data = await res.json();
-      setModels(data.models);
-      if (data.models.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
+      setModels(data.models || []);
+      if (data.models && data.models.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
     } catch (e) {
       console.error('Error fetching models', e);
       addToast('Failed to connect to backend', 'error');
@@ -95,18 +121,46 @@ const App = () => {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch(`${API_BASE}/status`);
+      const res = await fetchWithRetry(`${API_BASE}/status`);
+      if (!res) return; // Request was aborted
       const data = await res.json();
-      setIsTraining(data.is_training);
-      if (data.is_training) {
+      
+      // Use ref to avoid stale closure
+      const wasTraining = isTrainingRef.current;
+      const nowTraining = data.is_training;
+      
+      if (nowTraining !== wasTraining) {
+        setIsTraining(nowTraining);
+      }
+      
+      if (nowTraining) {
         setLastLog(data.last_log);
         setTrainingProgress(data.progress || 0);
+      } else {
+        // Training stopped - either completed or error
+        if (wasTraining && !nowTraining) {
+          // Training just finished!
+          setTrainingProgress(100);
+          addToast('Training completed successfully! Refreshing models...', 'success');
+          setTimeout(() => {
+            setTrainingProgress(0);
+            setLastLog('');
+            fetchModels(); // Refresh model list
+          }, 1500);
+        }
       }
       
       const evalRes = await fetch(`${API_BASE}/evaluation-status`);
       const evalData = await evalRes.json();
-      setIsEvaluating(evalData.is_evaluating);
-      if (evalData.is_evaluating) setEvalLog(evalData.last_log);
+      
+      const wasEvaluating = isEvaluatingRef.current;
+      const nowEvaluating = evalData.is_evaluating;
+      
+      if (nowEvaluating !== wasEvaluating) {
+        setIsEvaluating(nowEvaluating);
+      }
+      
+      if (nowEvaluating) setEvalLog(evalData.last_log);
     } catch (e) { 
       // Silent failure for status polling
       console.debug("Status poll failed", e);
@@ -266,10 +320,10 @@ const App = () => {
               <button className="btn-outline" onClick={() => setIsDeleting(false)}>Cancel</button>
               <button 
                 className="btn-primary" 
-                style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                style={{ background: '#ff3366', borderColor: '#ff3366', color: 'white' }}
                 onClick={confirmDelete}
               >
-                {deleteTarget === 'ALL' ? 'Delete Everything' : 'Delete Model'}
+                {deleteTarget === 'ALL' ? 'DELETE EVERYTHING' : 'Delete Model'}
               </button>
             </div>
           </div>
@@ -394,12 +448,26 @@ const App = () => {
               <ShieldCheck size={18} /> Model Repository
             </h2>
             <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
-               <Trash2 
-                  size={14} 
-                  onClick={handleRequestDeleteAll} 
-                  style={{ cursor: 'pointer', color: 'var(--danger)', opacity: 0.7 }} 
+               <button
+                  onClick={handleRequestDeleteAll}
+                  style={{ 
+                    background: 'var(--danger)', 
+                    border: 'none', 
+                    borderRadius: '6px', 
+                    padding: '0.4rem 0.6rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                    fontSize: '0.7rem',
+                    color: 'white',
+                    fontWeight: 600
+                  }}
                   title="Delete All Models" 
-               />
+               >
+                  <Trash2 size={12} />
+                  Delete All
+               </button>
                <RefreshCw size={14} onClick={fetchModels} style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} />
             </div>
           </div>
@@ -850,7 +918,7 @@ const App = () => {
         )}
 
         {mainTab === 'calculator' && (
-          <DataCenterCalculator onToast={addToast} />
+          <DataCenterCalculator onToast={addToast} evalResults={results} />
         )}
       </main>
 
