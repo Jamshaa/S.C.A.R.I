@@ -41,12 +41,10 @@ class ThermalAttentionExtractor(BaseFeaturesExtractor):
         # observations: (batch_size, 4 * num_servers)
         batch_size = observations.shape[0]
         
-        # Reshape to (batch_size, num_servers, 4)
-        temps = observations[:, :self.num_servers].unsqueeze(-1)
-        loads = observations[:, self.num_servers:2*self.num_servers].unsqueeze(-1)
-        health = observations[:, 2*self.num_servers:3*self.num_servers].unsqueeze(-1)
-        trends = observations[:, 3*self.num_servers:].unsqueeze(-1)
-        server_states = th.cat([temps, loads, health, trends], dim=-1)
+        # Reshape observations: [batch, 4 * num_servers] -> [batch, 4, num_servers]
+        # Then transpose to [batch, num_servers, 4] for per-server embedding
+        # This is more efficient as it avoids multiple slices and concatenations
+        server_states = observations.view(batch_size, 4, self.num_servers).transpose(1, 2)
         
         # Embed each server
         embeddings = th.relu(self.encoder(server_states)) # (batch_size, num_servers, embed_dim)

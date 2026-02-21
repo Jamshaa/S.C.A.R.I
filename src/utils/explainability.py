@@ -6,18 +6,18 @@ from collections import deque
 class DecisionExplainer:
     """Explains SCARI agent decisions in human-readable format."""
     
-    def __init__(self, t_min: float = 22.0, t_max: float = 95.0, max_history=100):
+    def __init__(self, num_servers: int = 10, t_min: float = 22.0, t_max: float = 95.0, max_history=100):
         self.decision_history = deque(maxlen=max_history)
+        self.num_servers = num_servers
         self.t_min = t_min
         self.t_max = t_max
-        self.feature_names = [
-            "Server 0 Temp", "Server 1 Temp", "Server 2 Temp", "Server 3 Temp", "Server 4 Temp",
-            "Server 5 Temp", "Server 6 Temp", "Server 7 Temp", "Server 8 Temp", "Server 9 Temp",
-            "Server 0 Load", "Server 1 Load", "Server 2 Load", "Server 3 Load", "Server 4 Load",
-            "Server 5 Load", "Server 6 Load", "Server 7 Load", "Server 8 Load", "Server 9 Load",
-            "Trend 0", "Trend 1", "Trend 2", "Trend 3", "Trend 4",
-            "Trend 5", "Trend 6", "Trend 7", "Trend 8", "Trend 9"
-        ]
+        
+        # Dynamically generate feature names
+        self.feature_names = (
+            [f"Server {i} Temp" for i in range(num_servers)] +
+            [f"Server {i} Load" for i in range(num_servers)] +
+            [f"Trend {i}" for i in range(num_servers)]
+        )
     
     def explain_action(self, observation: np.ndarray, action: np.ndarray, step: int) -> Dict:
         """

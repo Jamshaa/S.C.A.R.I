@@ -18,31 +18,31 @@ class PhysicsConfig:
     r_coeff: float = 0.5
     max_temp: float = 95.0
     min_temp: float = 22.0
-    max_temp_change_per_second: float = 5.0
+    max_temp_change_per_second: float = 8.0 # Faster heating if air is off
 
 @dataclass
 class CoolingConfig:
     """Configuration for the cooling system parameters."""
     mode: str = "AIR"
-    max_fan_power: float = 1000.0
+    max_fan_power: float = 80.0       # Realistic fan draw (Expert Input)
     max_pump_power: float = 50.0
     base_pump_power: float = 10.0
-    air_cooling_capacity: float = 3000.0
+    air_cooling_capacity: float = 800.0 # Forces active management
     liquid_cooling_capacity: float = 12000.0
-    max_capacity: float = 6000.0  # Total BTU/h or similar unit
-    p_max_cooling: float = 500.0  # Max cooling electricity usage
-    natural_convection: float = 50.0
+    max_capacity: float = 6000.0
+    p_max_cooling: float = 100.0      # Sensible overhead
+    natural_convection: float = 5.0    # Minimal passive safety
 
 @dataclass
 class RewardConfig:
     """Configuration for reward calculation parameters."""
-    target_temp_min: float = 50.0
-    target_temp_max: float = 60.0
+    target_temp_min: float = 45.0
+    target_temp_max: float = 55.0
     safety_limit: float = 75.0
     critical_limit: float = 85.0
-    energy_weight: float = 0.8
-    safety_weight: float = 2.0
-    stability_weight: float = 0.2
+    energy_weight: float = 0.2      # Reduced obsession with metrics
+    safety_weight: float = 5.0      # Expert Priority: Reliability first
+    stability_weight: float = 0.5   # Smoother transitions
     profile: str = "BALANCED"  # Options: MAX_EFFICIENCY, PRODUCTION_SAFE, BALANCED
     
     # Advanced / Optimization keys
@@ -50,7 +50,7 @@ class RewardConfig:
     thermal_penalty_coefficient: float = 10.0
     safe_threshold: float = 65.0
     critical_limit: float = 85.0
-    emergency_penalty: float = 150.0
+    emergency_penalty: float = 1000.0 # Severe punishment for overheating
     energy_efficiency_bonus: float = 10.0
 
 @dataclass

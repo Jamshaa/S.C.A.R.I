@@ -51,8 +51,8 @@ BASE_DIR = Path(__file__).resolve().parent
 class BaselineController:
     """Realistic PID-based baseline controller representing modern datacenter operations."""
     
-    def __init__(self, target_temp: float = 30.0):
-        self.target_temp = target_temp  # Industry standard: 27-32°C
+    def __init__(self, target_temp: float = 45.0):
+        self.target_temp = target_temp  # Modern standard: ASHRAE Guidelines
         self.prev_error = 0.0
         self.integral = 0.0
     
@@ -69,8 +69,8 @@ class BaselineController:
         self.prev_error = error
         
         fan_speed = kp * error + ki * self.integral + kd * derivative
-        # Modern datacenter: 40% minimum for airflow, up to 100% max
-        fan_speed = np.clip(0.4 + fan_speed, 0.4, 1.0)
+        # Baseline: 10% minimum for airflow, up to 100% max
+        fan_speed = np.clip(0.1 + fan_speed, 0.1, 1.0)
         
         return np.ones(num_servers) * fan_speed
     

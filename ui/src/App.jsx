@@ -72,6 +72,35 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
     }, 400);
   };
 
+  const [inputValue, setInputValue] = useState(fmtSteps(value));
+
+  useEffect(() => {
+    setInputValue(fmtSteps(value));
+  }, [value]);
+
+  const handleInputChange = (e) => {
+    setInputValue(e.target.value);
+  };
+
+  const handleInputBlur = () => {
+    let raw = inputValue.toLowerCase();
+    let val = parseFloat(raw);
+    if (raw.endsWith('m')) val *= 1_000_000;
+    else if (raw.endsWith('k')) val *= 1_000;
+    
+    if (isNaN(val)) {
+      setInputValue(fmtSteps(value));
+    } else {
+      const clamped = clamp(val);
+      onChange(clamped);
+      setInputValue(fmtSteps(clamped));
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleInputBlur();
+  };
+
   return (
     <div>
       <div className="stepper">
@@ -84,7 +113,14 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
         >
           <Minus size={14} />
         </button>
-        <div className="stepper-value">{fmtSteps(value)}</div>
+        <input 
+          type="text"
+          className="stepper-input-field"
+          value={inputValue}
+          onChange={handleInputChange}
+          onBlur={handleInputBlur}
+          onKeyDown={handleKeyDown}
+        />
         <button 
           className="stepper-btn"
           onMouseDown={() => startHoldSafe(step)}
@@ -181,11 +217,30 @@ const App = () => {
   useEffect(() => {
     fetchModels();
     let isMounted = true;
+    let errorCount = 0;
+    
     const poll = async () => {
       if (!isMounted) return;
-      await fetchStatus();
-      if (isMounted) setTimeout(poll, 2000);
+      
+      try {
+        await fetchStatus();
+        errorCount = 0; // Reset on success
+      } catch {
+        errorCount++;
+        if (errorCount > 5) {
+          console.error("Polling stopped due to consecutive errors.");
+          addToast("Connection to backend lost. Polling stopped.", "error");
+          return;
+        }
+      }
+      
+      if (isMounted) {
+        // Exponential backoff or constant with safety
+        const delay = Math.min(2000 * Math.pow(1.2, errorCount), 10000);
+        setTimeout(poll, delay);
+      }
     };
+    
     const timeout = setTimeout(poll, 2000);
     return () => {
       isMounted = false;
@@ -487,8 +542,8 @@ const App = () => {
               value={trainingSteps}
               onChange={setTrainingSteps}
               step={50000}
-              min={10000}
-              max={5000000}
+              min={1000}
+              max={10000000}
               presets={[100000, 300000, 600000, 1000000]}
             />
             <button 
@@ -545,7 +600,7 @@ const App = () => {
             <StepperInput
               value={evalSteps}
               onChange={setEvalSteps}
-              step={1000}
+              step={5000}
               min={500}
               max={50000}
               presets={[1000, 5000, 10000, 25000]}
@@ -616,6 +671,8 @@ const App = () => {
           MAIN CONTENT
           ═══════════════════════════════════════════════════ */}
       <main className="main-content">
+        <div className="content-area">
+
         {/* Header + Tab Switcher */}
         <header style={{ 
           display: 'flex', 
@@ -770,6 +827,14 @@ const App = () => {
                       <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
                     </div>
                   ))}
+                  <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', background: 'rgba(var(--accent-rgb), 0.03)', border: '1px dashed var(--border)' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                      <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
+                        <strong>Note on Projections:</strong> Sustainability metrics and yearly savings are linear extrapolations based on the simulation snapshot. Real-world performance may vary due to seasonality and non-linear data center loads.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
@@ -980,7 +1045,9 @@ const App = () => {
         {mainTab === 'calculator' && (
           <DataCenterCalculator onToast={addToast} evalResults={results} />
         )}
+        </div>
       </main>
+
 
       {/* Toasts */}
       <div className="toast-container">

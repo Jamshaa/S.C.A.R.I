@@ -300,7 +300,12 @@ class GreenDCCalculator:
         # Break-even analysis (embodied carbon)
         embodied = self.calculate_embodied_carbon(num_servers)
         embodied_co2 = embodied["total_embodied_co2_kg"]
-        breakeven_years = embodied_co2 / co2_reduction if co2_reduction > 0 else float('inf')
+        
+        # Strictly verify reduction is positive and non-zero to avoid division by zero or negative years
+        if co2_reduction > 1e-6:
+            breakeven_years = embodied_co2 / co2_reduction
+        else:
+            breakeven_years = float('inf')
 
         return {
             "scenario_comparison": {

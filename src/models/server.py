@@ -102,10 +102,6 @@ class Server:
         self.temp_history.append(self.temperature)
         self.power_history.append(self.power_draw + cooling_cost)
         
-        # Critical warning log
-        if self.temperature >= self.config.physics.max_temp * 0.95:
-            logger.warning(f"Server {self.id} CRITICAL TEMP: {self.temperature:.1f}ºC")
-        
         return {
             "temp": self.temperature,
             "it_power": self.power_draw,
@@ -120,6 +116,8 @@ class Server:
         """Reset server state to initial values."""
         # Start at a realistic "warm" operating temperature to avoid startup skew in metrics
         self.temperature = np.random.uniform(40.0, 50.0)
+        # logger.warning(f"Server {self.id} CRITICAL TEMP: {self.temperature:.1f}ºC") 
+        # Removed above to prevent training slowdowns (80-90% performance hit)
         self.cpu_load = 0.0
         self.power_draw = self.config.physics.p_idle
         self.health = 1.0

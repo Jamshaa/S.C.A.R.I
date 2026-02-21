@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from src.utils.greendc import GreenDCCalculator
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 import logging
 
 # Configure Structured Logging
@@ -116,7 +116,8 @@ class TrainingParams(BaseModel):
     config: str = "configs/optimized.yaml"
     name: str = "scari_model"
 
-    @validator('timesteps')
+    @field_validator('timesteps')
+    @classmethod
     def validate_timesteps(cls, v):
         if v < 1000 or v > 10_000_000:
             raise ValueError("timesteps must be between 1,000 and 10,000,000")
@@ -126,12 +127,17 @@ class RenameRequest(BaseModel):
     old_name: str
     new_name: str
 
-    @validator('new_name')
+    @field_validator('new_name')
+    @classmethod
     def validate_name(cls, v):
         if not v.endswith('.zip'):
             return f"{v}.zip"
         return v
 
+
+class EvaluationRequest(BaseModel):
+    model: str
+    steps: int = 5000
 
 class TrainingStatus:
     is_training = False
@@ -149,6 +155,10 @@ class EvaluationStatus:
 status = TrainingStatus()
 eval_status = EvaluationStatus()
 greendc = GreenDCCalculator() # Default industrial rates
+
+# Locks to prevent DoS by concurrent heavy tasks
+training_lock = threading.Lock()
+evaluation_lock = threading.Lock()
 
 @app.get("/models")
 async def get_models():
@@ -334,9 +344,17 @@ def run_train_task(params: TrainingParams):
 @app.post("/train")
 async def start_training(params: TrainingParams, background_tasks: BackgroundTasks):
     """Start training in background."""
-    if status.is_training:
-        raise HTTPException(status_code=400, detail="Training already in progress")
-    background_tasks.add_task(run_train_task, params)
+    if not training_lock.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="A training process is already running. Please wait.")
+    
+    # helper to release lock after task
+    def run_train_with_lock(params):
+        try:
+            run_train_task(params)
+        finally:
+            training_lock.release()
+
+    background_tasks.add_task(run_train_with_lock, params)
     return {"message": "Training started"}
 
 @app.get("/status")
@@ -381,11 +399,10 @@ async def get_history():
 @app.get("/history/{eval_id}")
 async def get_historical_result(eval_id: str):
     """Get full results for a specific historical evaluation."""
-    # Validate ID format to prevent traversal (basic check)
-    if ".." in eval_id or "/" in eval_id or "\\" in eval_id:
-        raise HTTPException(status_code=400, detail="Invalid evaluation ID")
-        
-    eval_dir = OUTPUTS_DIR / eval_id
+    # Use pathlib to prevent traversal
+    eval_dir = (OUTPUTS_DIR / eval_id).resolve()
+    if not eval_dir.is_relative_to(OUTPUTS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Path traversal attempt detected")
     metrics_path = eval_dir / "metrics.json"
     
     if not eval_dir.exists() or not metrics_path.exists():
@@ -426,10 +443,9 @@ async def get_historical_result(eval_id: str):
 @app.delete("/history/{eval_id}")
 async def delete_historical_result(eval_id: str):
     """Delete a single historical evaluation run."""
-    if ".." in eval_id or "/" in eval_id or "\\" in eval_id:
-        raise HTTPException(status_code=400, detail="Invalid evaluation ID")
-    
-    eval_dir = OUTPUTS_DIR / eval_id
+    eval_dir = (OUTPUTS_DIR / eval_id).resolve()
+    if not eval_dir.is_relative_to(OUTPUTS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Path traversal attempt detected")
     if not eval_dir.exists() or not eval_dir.is_dir():
         raise HTTPException(status_code=404, detail="Evaluation not found")
     
@@ -507,17 +523,23 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
         eval_status.is_evaluating = False
 
 @app.post("/evaluate")
-async def run_evaluation(model_name: str, background_tasks: BackgroundTasks, steps: int = 5000):
+async def run_evaluation(params: EvaluationRequest, background_tasks: BackgroundTasks):
     """Run evaluation for a specific model in background."""
-    safe_name = sanitize_model_name(model_name)
+    safe_name = sanitize_model_name(params.model)
     model_path = MODELS_DIR / safe_name
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     
-    if eval_status.is_evaluating:
-        raise HTTPException(status_code=400, detail="Evaluation already in progress")
+    if not evaluation_lock.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="An evaluation process is already running. Please wait.")
     
-    background_tasks.add_task(run_eval_task, model_path, steps, OUTPUTS_DIR)
+    def run_eval_with_lock(path, s, out):
+        try:
+            run_eval_task(path, s, out)
+        finally:
+            evaluation_lock.release()
+
+    background_tasks.add_task(run_eval_with_lock, model_path, params.steps, OUTPUTS_DIR)
     return {"message": "Evaluation started"}
 
 @app.get("/evaluation-status")
@@ -530,7 +552,7 @@ async def get_evaluation_status():
         "has_result": eval_status.result is not None
     }
 
-@app.get("/results")
+@app.get("/evaluation-results")
 async def get_results():
     """Get the results of the last evaluation with safety checks."""
     metrics_path = OUTPUTS_DIR / "metrics.json"
@@ -589,20 +611,23 @@ class DataCenterParams(BaseModel):
     optimized_pue: float = 1.1
     region: str = "EU"
 
-    @validator('num_servers')
+    @field_validator('num_servers')
+    @classmethod
     def validate_servers(cls, v):
         if v < 1 or v > 100000:
             raise ValueError("num_servers must be between 1 and 100,000")
         return v
 
-    @validator('topology')
+    @field_validator('topology')
+    @classmethod
     def validate_topology(cls, v):
         valid_topologies = ["fat_tree", "clos", "spine_leaf", "three_tier"]
         if v not in valid_topologies:
             raise ValueError(f"topology must be one of {valid_topologies}")
         return v
 
-    @validator('region')
+    @field_validator('region')
+    @classmethod
     def validate_region(cls, v):
         valid_regions = ["EU", "ES", "DE", "US", "ASIA"]
         if v not in valid_regions:
@@ -615,7 +640,8 @@ class ROIParams(BaseModel):
     investment_eur: float
     annual_savings_eur: float
 
-    @validator('investment_eur', 'annual_savings_eur')
+    @field_validator('investment_eur', 'annual_savings_eur')
+    @classmethod
     def validate_positive(cls, v):
         if v < 0:
             raise ValueError("Values must be non-negative")

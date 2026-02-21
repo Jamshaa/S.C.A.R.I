@@ -110,6 +110,15 @@ class CoolingSystem:
             # Natural convection (always some heat loss)
             passive = self.config.natural_convection * (delta_t / 20.0)
             
+            # ¡NUEVA LÓGICA ANTI-HACKING!
+            # Si el ventilador va a menos del 10%, no mueve suficiente masa de aire 
+            # para vencer la resistencia interna del disipador. Enfriamiento cero.
+            if flow_rate < 0.10:
+                active = 0.0
+            else:
+                base_capacity = self.config.air_cooling_capacity
+                active = base_capacity * flow_rate * (delta_t / 25.0) # Normalized at 25C delta
+            
             # Economizer mode: Massive free cooling when ambient is low
             economizer_bonus = 0.0
             if ambient_temp < 15.0:
@@ -119,11 +128,6 @@ class CoolingSystem:
                 # Partial free cooling
                 quality = (20.0 - ambient_temp) / 5.0
                 economizer_bonus = 1000.0 * flow_rate * quality
-            
-            # Active cooling capacity
-            # Scales linearly with flow but depends heavily on Delta T
-            base_capacity = self.config.air_cooling_capacity
-            active = base_capacity * flow_rate * (delta_t / 25.0) # Normalized at 25C delta
             
             return passive + active + economizer_bonus
         

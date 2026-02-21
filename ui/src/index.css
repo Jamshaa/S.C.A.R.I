@@ -182,8 +182,15 @@ h3 {
 .main-content {
   margin-left: var(--sidebar-width);
   flex: 1;
+  display: flex;
+  justify-content: center;
   padding: 32px 40px;
-  max-width: 1060px;
+  min-width: 0;
+}
+
+.content-area {
+  width: 100%;
+  max-width: 1100px;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -377,20 +384,38 @@ h3 {
 .stepper-btn:active {
   background: var(--surface-active);
 }
-.stepper-value {
+.stepper-input-field {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: none !important;
+  border-left: 1px solid var(--border) !important;
+  border-right: 1px solid var(--border) !important;
+  background: var(--surface-raised) !important;
+  color: var(--text) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-align: center !important;
+  letter-spacing: -0.01em;
+  outline: none !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 0.12s ease;
+}
+
+.stepper-input-field:focus {
+  background: var(--surface) !important;
+  color: var(--accent) !important;
+}
+
+.stepper-input-field::selection {
+  background: var(--accent-subtle);
   color: var(--text);
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
-  letter-spacing: -0.02em;
-  cursor: default;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -784,6 +809,7 @@ select {
     margin-left: 0;
     padding: 20px 16px;
     width: 100%;
+    display: block;
   }
   .app-container, .layout {
     flex-direction: column;
