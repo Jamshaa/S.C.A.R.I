@@ -209,6 +209,23 @@ async def delete_all_models():
         logger.error(f"Delete all error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete all: {str(e)}")
 
+@app.delete("/models/{model_name}")
+async def delete_model(model_name: str):
+    """Delete a single model file."""
+    safe_name = sanitize_model_name(model_name)
+    model_path = MODELS_DIR / safe_name
+    
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    try:
+        os.remove(model_path)
+        logger.info(f"Deleted model: {safe_name}")
+        return {"message": f"Deleted {safe_name}"}
+    except Exception as e:
+        logger.error(f"Delete error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+
 
 def run_train_task(params: TrainingParams):
     global status
@@ -406,6 +423,24 @@ async def get_historical_result(eval_id: str):
         "sustainability": green_impact
     }
 
+@app.delete("/history/{eval_id}")
+async def delete_historical_result(eval_id: str):
+    """Delete a single historical evaluation run."""
+    if ".." in eval_id or "/" in eval_id or "\\" in eval_id:
+        raise HTTPException(status_code=400, detail="Invalid evaluation ID")
+    
+    eval_dir = OUTPUTS_DIR / eval_id
+    if not eval_dir.exists() or not eval_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Evaluation not found")
+    
+    try:
+        shutil.rmtree(eval_dir)
+        logger.info(f"Deleted historical evaluation: {eval_id}")
+        return {"message": f"Deleted evaluation {eval_id}"}
+    except Exception as e:
+        logger.error(f"Failed to delete evaluation {eval_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
+
 def run_eval_task(model_path: Path, steps: int, output_dir: Path):
     global eval_status
     eval_status.is_evaluating = True
@@ -567,6 +602,13 @@ class DataCenterParams(BaseModel):
             raise ValueError(f"topology must be one of {valid_topologies}")
         return v
 
+    @validator('region')
+    def validate_region(cls, v):
+        valid_regions = ["EU", "ES", "DE", "US", "ASIA"]
+        if v not in valid_regions:
+            raise ValueError(f"region must be one of {valid_regions}")
+        return v
+
 class ROIParams(BaseModel):
     """Parameters for ROI analysis"""
     num_servers: int
@@ -625,21 +667,18 @@ async def analyze_network_topology(params: DataCenterParams):
 async def compare_scenarios(params: DataCenterParams):
     """
     Compare operational carbon across baseline vs. optimized scenarios.
-    Calculates energy savings, cost reduction, and environmental impact.
+    Uses region-specific pricing and carbon intensity.
     """
     try:
-        result = greendc.compare_scenarios(
+        calc = GreenDCCalculator(region=params.region)
+        result = calc.compare_scenarios(
             num_servers=params.num_servers,
             baseline_pue=params.baseline_pue,
             optimized_pue=params.optimized_pue,
             annual_power_kwh=params.annual_power_kwh
         )
-        
-        logger.info(f"Compared scenarios for {params.num_servers} servers")
-        return {
-            "status": "success",
-            "data": result
-        }
+        logger.info(f"Compared scenarios for {params.num_servers} servers [{params.region}]")
+        return {"status": "success", "data": result}
     except Exception as e:
         logger.error(f"Scenario comparison error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -671,33 +710,35 @@ async def comprehensive_analysis(params: DataCenterParams):
     """
     Comprehensive datacenter sustainability analysis.
     Combines operational, embodied, and network topology analysis.
+    Uses region-specific energy pricing and carbon intensity.
     """
     try:
-        operational = greendc.compare_scenarios(
+        # Region-aware calculator instance for this request
+        calc = GreenDCCalculator(region=params.region)
+
+        operational = calc.compare_scenarios(
             num_servers=params.num_servers,
             baseline_pue=params.baseline_pue,
             optimized_pue=params.optimized_pue,
             annual_power_kwh=params.annual_power_kwh
         )
-        
-        embodied = greendc.calculate_embodied_carbon(
+
+        embodied = calc.calculate_embodied_carbon(
             num_servers=params.num_servers,
             topology=params.topology
         )
-        
-        network = greendc.calculate_network_topology(
+
+        network = calc.calculate_network_topology(
             num_servers=params.num_servers,
             topology=params.topology
         )
-        
-        # Calculate total carbon footprint
+
         total_carbon = (
-            embodied["total_embodied_co2_kg"] +
             embodied["annual_amortized_co2_kg"] +
-            operational["scenario_comparison"]["baseline"]["annual_co2_kg"]
+            operational["scenario_comparison"]["optimized"]["annual_co2_kg"]
         )
-        
-        logger.info(f"Comprehensive analysis for {params.num_servers} servers, {params.topology}")
+
+        logger.info(f"Comprehensive analysis: {params.num_servers} servers, {params.topology}, region={params.region}")
         return {
             "status": "success",
             "data": {
@@ -710,6 +751,7 @@ async def comprehensive_analysis(params: DataCenterParams):
                     "network_topology": params.topology,
                     "total_switches": network["total_switches"],
                     "breakeven_years": operational["improvements"].get("breakeven_years"),
+                    "region": params.region,
                 }
             }
         }

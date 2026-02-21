@@ -1,33 +1,67 @@
 import React, { useState, useMemo } from 'react';
 import {
-  BarChart3, Leaf, Zap, DollarSign, Boxes, Share2,
+  BarChart3, Leaf, Zap, DollarSign, Share2,
   TrendingDown, AlertCircle, CheckCircle2, Loader2,
-  Info, ChevronDown, Gauge, PieChart, TrendingUp, Cpu,
-  Download, Settings, Play, RefreshCw, Server, Thermometer,
-  Building2, Factory, CircleDollarSign, TreePine, ToggleLeft, ToggleRight
+  Download, Settings, Play, RefreshCw, Server,
+  Building2, Factory, TreePine, TrendingUp, CircleDollarSign,
+  Lock, Unlock, Trash2, Clock
 } from 'lucide-react';
 import { API_BASE } from './config';
 
-// Presets for quick configuration
+/* ─── REAL-WORLD DC PRESETS ─────────────────────────────────────
+   Values based on industry benchmarks:
+     - Small DC: ~75 servers, 300kW IT load, PUE 1.8 typical/1.3 good
+     - Medium DC: ~750 servers, 3MW IT load, PUE 1.6 typical/1.15 good  
+     - Enterprise DC: ~5000 servers, 20MW IT load, PUE 1.5 typical/1.08 optimized
+   ────────────────────────────────────────────────────────────── */
 const PRESETS = {
   small: {
-    name: 'Small DC',
+    name: 'Edge / Small',
     icon: Server,
-    description: '50-100 servers',
-    values: { num_servers: 75, annual_power_kwh: 150000, baseline_pue: 1.8, optimized_pue: 1.2, topology: 'spine_leaf' }
+    description: '50–100 servers · Edge compute',
+    values: {
+      num_servers: 75,
+      annual_power_kwh: 1_314_000,
+      baseline_pue: 1.80,
+      optimized_pue: 1.30,
+      topology: 'spine_leaf'
+    }
   },
   medium: {
-    name: 'Medium DC',
+    name: 'Regional DC',
     icon: Building2,
-    description: '500-1000 servers',
-    values: { num_servers: 750, annual_power_kwh: 1500000, baseline_pue: 1.6, optimized_pue: 1.15, topology: 'spine_leaf' }
+    description: '500–1000 servers · Regional tier',
+    values: {
+      num_servers: 750,
+      annual_power_kwh: 26_280_000,
+      baseline_pue: 1.60,
+      optimized_pue: 1.15,
+      topology: 'spine_leaf'
+    }
   },
   enterprise: {
     name: 'Enterprise DC',
     icon: Factory,
-    description: '5000+ servers',
-    values: { num_servers: 5000, annual_power_kwh: 10000000, baseline_pue: 1.5, optimized_pue: 1.08, topology: 'fat_tree' }
+    description: '5000+ servers · Hyperscale tier',
+    values: {
+      num_servers: 5000,
+      annual_power_kwh: 175_200_000,
+      baseline_pue: 1.50,
+      optimized_pue: 1.08,
+      topology: 'fat_tree'
+    }
   }
+};
+
+/* ─── REGIONAL ENERGY RATES ────────────────────────────────────
+   Source: Eurostat / EIA 2024 industrial rates
+   ────────────────────────────────────────────────────────────── */
+const REGION_DATA = {
+  EU:   { price: 0.18, currency: '€', label: 'Europe',    intensity: 0.255 },
+  ES:   { price: 0.14, currency: '€', label: 'Spain',     intensity: 0.184 },
+  DE:   { price: 0.22, currency: '€', label: 'Germany',   intensity: 0.380 },
+  US:   { price: 0.08, currency: '$', label: 'USA',       intensity: 0.386 },
+  ASIA: { price: 0.07, currency: '$', label: 'Asia-Pac',  intensity: 0.500 },
 };
 
 const DataCenterCalculator = ({ onToast, evalResults }) => {
@@ -36,12 +70,11 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
   const [results, setResults] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState(null);
   
-  // History state
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
 
-  // Analysis toggles - user can choose which analyses to run
   const [analysisOptions, setAnalysisOptions] = useState({
     operational: true,
     embodied: true,
@@ -49,13 +82,12 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     roi: false
   });
 
-  // Form state
   const [formData, setFormData] = useState({
     num_servers: 500,
     topology: 'spine_leaf',
-    annual_power_kwh: 1000000,
+    annual_power_kwh: 17_520_000,
     baseline_pue: 1.67,
-    optimized_pue: 1.1,
+    optimized_pue: 1.10,
     region: 'EU'
   });
 
@@ -64,42 +96,43 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     annual_savings_eur: 100000
   });
 
-  // Calculate estimated savings in real-time
+  /* ─── LIVE ESTIMATE ────────────────────────────────────────── */
   const estimatedSavings = useMemo(() => {
-    const { annual_power_kwh, baseline_pue, optimized_pue } = formData;
+    const { annual_power_kwh, baseline_pue, optimized_pue, region } = formData;
+    const regionInfo = REGION_DATA[region] || REGION_DATA.EU;
+    
     const baselineEnergy = annual_power_kwh * baseline_pue;
     const optimizedEnergy = annual_power_kwh * optimized_pue;
-    const energySaved = baselineEnergy - optimizedEnergy;
-    const costSaved = energySaved * 0.12; // avg €0.12/kWh
-    const co2Saved = energySaved * 0.4; // avg 0.4 kg CO2/kWh
-    return { energySaved, costSaved, co2Saved };
+    const energySavedKwh = Math.max(0, baselineEnergy - optimizedEnergy);
+    
+    const costSaved = energySavedKwh * regionInfo.price;
+    const co2Saved  = energySavedKwh * regionInfo.intensity;
+    const pueReduction = ((baseline_pue - optimized_pue) / baseline_pue) * 100;
+    const energySavingPct = (energySavedKwh / baselineEnergy) * 100;
+    
+    return { energySavedKwh, costSaved, co2Saved, pueReduction, energySavingPct, regionInfo };
   }, [formData]);
 
-  // Import values from SCARI evaluation
+  /* ─── IMPORT FROM SCARI EVALUATION ─────────────────────────── */
   const importFromEval = (evalData = evalResults) => {
-    // SCARI backend returns 'sustainability' object, not 'summary'
-    const sourceData = evalData.sustainability || evalData.summary; // Fallback for safety
-    
-    if (!evalData || !sourceData) {
-      onToast?.('No evaluation results available. Run an evaluation first!', 'error');
+    const src = evalData?.sustainability;
+    if (!evalData || !src) {
+      onToast?.('No evaluation results available. Run an evaluation first.', 'error');
       return;
     }
-    
-    // Extract PUE values from eval results (using correct backend keys)
-    const avgPUE = sourceData.pue_optimized || sourceData.avg_pue || 1.1;
-    const baselinePUE = sourceData.pue_baseline || sourceData.baseline_pue || 1.67;
-    // MATCH DASHBOARD: Prioritize energy_savings_percent over pue_improvement_percent
-    const energySavings = sourceData.energy_savings_percent || sourceData.pue_improvement_percent || 0;
+    const avgPUE      = src.pue_optimized ?? 1.10;
+    const baselinePUE = src.pue_baseline  ?? 1.67;
+    const savings_pct = src.energy_savings_percent ?? src.pue_improvement_percent ?? 0;
     
     setFormData(prev => ({
       ...prev,
       optimized_pue: parseFloat(avgPUE.toFixed(3)),
-      baseline_pue: parseFloat(baselinePUE.toFixed(2))
+      baseline_pue:  parseFloat(baselinePUE.toFixed(2))
     }));
-    
     setSelectedPreset(null);
     setShowHistory(false);
-    onToast?.(`Imported from ${evalData.id || 'current'} eval: PUE ${avgPUE.toFixed(3)}, Savings ${energySavings.toFixed(1)}%`, 'success');
+    setIsLocked(true);
+    onToast?.(`Imported: PUE ${avgPUE.toFixed(3)}, ${savings_pct.toFixed(1)}% savings`, 'success');
   };
 
   const fetchHistory = async () => {
@@ -111,9 +144,8 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
         setHistory(data.history || []);
         setShowHistory(true);
       }
-    } catch (e) {
-      console.error("Failed to fetch history:", e);
-      onToast?.("Failed to load history", "error");
+    } catch {
+      onToast?.('Failed to load history', 'error');
     } finally {
       setLoadingHistory(false);
     }
@@ -122,39 +154,46 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
   const loadHistoricalRun = async (evalId) => {
     try {
       const res = await fetch(`${API_BASE}/history/${evalId}`);
+      if (res.ok) importFromEval(await res.json());
+    } catch {
+      onToast?.('Failed to load historical run', 'error');
+    }
+  };
+
+  const deleteHistoricalRun = async (evalId, e) => {
+    e?.stopPropagation();
+    try {
+      const res = await fetch(`${API_BASE}/history/${evalId}`, { method: 'DELETE' });
       if (res.ok) {
-        const data = await res.json();
-        importFromEval(data);
+        setHistory(prev => prev.filter(h => h.id !== evalId));
+        onToast?.('Evaluation deleted', 'success');
+      } else {
+        onToast?.('Failed to delete', 'error');
       }
-    } catch (e) {
-      onToast?.("Failed to load historical run", "error");
+    } catch {
+      onToast?.('Failed to delete evaluation', 'error');
     }
   };
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    setSelectedPreset(null); // Clear preset when manually editing
+    setSelectedPreset(null);
   };
 
-  const handleRoiChange = (field, value) => {
-    setRoiData(prev => ({ ...prev, [field]: value }));
+  const applyPreset = (key) => {
+    setFormData(prev => ({ ...prev, ...PRESETS[key].values }));
+    setSelectedPreset(key);
+    setIsLocked(false);
+    onToast?.(`Applied ${PRESETS[key].name} preset`, 'success');
   };
 
-  const applyPreset = (presetKey) => {
-    const preset = PRESETS[presetKey];
-    setFormData(prev => ({ ...prev, ...preset.values }));
-    setSelectedPreset(presetKey);
-    onToast?.(`Applied ${preset.name} preset`, 'success');
-  };
-
-  const toggleAnalysisOption = (option) => {
-    setAnalysisOptions(prev => ({ ...prev, [option]: !prev[option] }));
+  const toggleAnalysisOption = (opt) => {
+    setAnalysisOptions(prev => ({ ...prev, [opt]: !prev[opt] }));
   };
 
   const runAnalysis = async () => {
     setIsLoading(true);
     try {
-      // Run comprehensive analysis
       const res = await fetch(`${API_BASE}/calculator/comprehensive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -163,32 +202,24 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       
-      let finalResults = { ...data.data };
+      let final = { ...data.data };
 
-      // If ROI is enabled, also run ROI analysis
       if (analysisOptions.roi) {
         const roiRes = await fetch(`${API_BASE}/calculator/roi-analysis`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            num_servers: formData.num_servers,
-            ...roiData
-          })
+          body: JSON.stringify({ num_servers: formData.num_servers, ...roiData })
         });
-        if (roiRes.ok) {
-          const roiResult = await roiRes.json();
-          finalResults.roi = roiResult.data;
-        }
+        if (roiRes.ok) final.roi = (await roiRes.json()).data;
       }
 
-      // Filter results based on selected options
-      if (!analysisOptions.operational) delete finalResults.operational;
-      if (!analysisOptions.embodied) delete finalResults.embodied;
-      if (!analysisOptions.network) delete finalResults.network;
+      if (!analysisOptions.operational) delete final.operational;
+      if (!analysisOptions.embodied) delete final.embodied;
+      if (!analysisOptions.network) delete final.network;
 
-      setResults(finalResults);
+      setResults(final);
       setActiveTab('results');
-      onToast?.('Analysis complete!', 'success');
+      onToast?.('Analysis complete', 'success');
     } catch (e) {
       onToast?.(`Analysis failed: ${e.message}`, 'error');
     } finally {
@@ -198,730 +229,630 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
 
   const exportResults = () => {
     if (!results) return;
-    const dataStr = JSON.stringify(results, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
+    link.href  = url;
     link.download = `scari_analysis_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    onToast?.('Results exported!', 'success');
+    onToast?.('Exported', 'success');
   };
 
-  const TabButton = ({ id, icon: Icon, label }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      style={{
-        padding: '0.75rem 1.25rem',
-        background: activeTab === id ? 'var(--gradient-success)' : 'transparent',
-        color: activeTab === id ? '#000' : 'var(--text-secondary)',
-        border: activeTab === id ? 'none' : '1px solid var(--glass-border)',
-        borderRadius: '10px',
-        cursor: 'pointer',
-        fontSize: '0.85rem',
-        fontWeight: activeTab === id ? '700' : '500',
-        transition: 'all 0.3s ease',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem'
-      }}
-    >
-      <Icon size={16} />
-      {label}
-    </button>
-  );
-
-  const MetricCard = ({ label, value, unit, icon: Icon, color, subtitle }) => (
-    <div style={{
-      background: `linear-gradient(135deg, ${color}15, ${color}05)`,
-      border: `1px solid ${color}30`,
-      borderRadius: '12px',
-      padding: '1.25rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.5rem'
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <Icon size={16} color={color} />
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-          {label}
-        </span>
+  /* ─── PUE BAR COMPONENT ────────────────────────────────────── */
+  const PUEBar = ({ value, label, isOptimized }) => {
+    const normalised = Math.max(0, Math.min(1, (value - 1.0) / 1.0));
+    return (
+      <div style={{ marginTop: '6px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <span className="text-label">{label}</span>
+          <span style={{ 
+            fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)', 
+            color: isOptimized ? 'var(--success)' : 'var(--warning)'
+          }}>
+            PUE {value.toFixed(2)}
+          </span>
+        </div>
+        <div className="progress-track" style={{ height: '5px' }}>
+          <div className="progress-fill" style={{
+            width: `${normalised * 100}%`,
+            background: isOptimized ? 'var(--success)' : 'var(--warning)',
+          }} />
+        </div>
       </div>
-      <p style={{ fontSize: '1.8rem', fontWeight: 800, color }}>
-        {value} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{unit}</span>
-      </p>
-      {subtitle && <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{subtitle}</p>}
-    </div>
-  );
+    );
+  };
 
-  const ProgressBar = ({ value, max, color }) => (
-    <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-      <div style={{ 
-        width: `${Math.min(100, (value / max) * 100)}%`, 
-        height: '100%', 
-        background: color,
-        borderRadius: '4px',
-        transition: 'width 0.5s ease'
-      }} />
+  /* ─── METRIC CARD COMPONENT ────────────────────────────────── */
+  const MetricCard = ({ label, value, unit, icon: Icon, accent = false, subtitle }) => (
+    <div className="metric-card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
+        {Icon && <Icon size={13} color={accent ? 'var(--success)' : 'var(--muted)'} />}
+        <span className="text-label">{label}</span>
+      </div>
+      <div className="metric-value" style={{ fontSize: '22px', color: accent ? 'var(--success)' : 'var(--text)' }}>
+        {value}
+        {unit && <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--muted)', marginLeft: '4px' }}>{unit}</span>}
+      </div>
+      {subtitle && <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '5px', lineHeight: 1.4 }}>{subtitle}</p>}
     </div>
   );
 
   return (
-    <div className="calculator-container">
-      <div className="card" style={{ padding: '2rem' }}>
-        {/* Header */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '2rem',
-          paddingBottom: '1.5rem',
-          borderBottom: '1px solid var(--glass-border)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ background: 'var(--gradient-success)', padding: '0.75rem', borderRadius: '12px' }}>
-              <Boxes size={28} color="#000" />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '1.6rem', marginBottom: '0.25rem', fontWeight: 800 }}>
-                Sustainability Calculator
-              </h2>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Datacenter carbon footprint & ROI analysis
-              </p>
-            </div>
-          </div>
-          {results && (
-            <button
-              onClick={exportResults}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--glass-border)',
-                borderRadius: '8px',
-                padding: '0.6rem 1rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                color: 'var(--text-secondary)',
-                fontSize: '0.85rem'
-              }}
-            >
-              <Download size={16} />
-              Export JSON
-            </button>
-          )}
+    <div style={{ width: '100%' }}>
+      {/* ── HEADER ─────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        marginBottom: '28px', paddingBottom: '20px', borderBottom: '1px solid var(--border)'
+      }}>
+        <div>
+          <h2 style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '3px' }}>
+            Sustainability Calculator
+          </h2>
+          <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
+            Carbon footprint · OpEx impact · ROI projection
+          </p>
         </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem' }}>
-          <TabButton id="config" icon={Settings} label="Configuration" />
-          <TabButton id="analysis" icon={Gauge} label="Analysis Options" />
-          <TabButton id="results" icon={BarChart3} label="Results" />
-        </div>
-
-        {/* Real-time Estimates Banner */}
-        {activeTab !== 'results' && (
-          <div style={{
-            background: 'linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 212, 212, 0.05))',
-            border: '1px solid rgba(0, 255, 136, 0.2)',
-            borderRadius: '12px',
-            padding: '1rem 1.5rem',
-            marginBottom: '2rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '2rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Zap size={18} color="var(--success)" />
-              <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Live Estimate</span>
-            </div>
-            <div style={{ display: 'flex', gap: '2rem' }}>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Energy Saved</span>
-                <p style={{ fontWeight: 700, color: 'var(--success)' }}>{(estimatedSavings.energySaved / 1000).toFixed(0)} MWh/yr</p>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cost Reduction</span>
-                <p style={{ fontWeight: 700, color: 'var(--success)' }}>€{estimatedSavings.costSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}/yr</p>
-              </div>
-              <div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CO₂ Avoided</span>
-                <p style={{ fontWeight: 700, color: 'var(--success)' }}>{(estimatedSavings.co2Saved / 1000).toFixed(1)} tons/yr</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Configuration Tab */}
-        {activeTab === 'config' && (
-          <div>
-            {/* Presets */}
-            <div style={{ marginBottom: '2rem' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Play size={16} /> Quick Presets
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                {Object.entries(PRESETS).map(([key, preset]) => (
-                  <button
-                    key={key}
-                    onClick={() => applyPreset(key)}
-                    style={{
-                      padding: '1.25rem',
-                      background: selectedPreset === key ? 'var(--gradient-success)' : 'var(--glass-bg)',
-                      border: selectedPreset === key ? 'none' : '1px solid var(--glass-border)',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                      <preset.icon size={20} color={selectedPreset === key ? '#000' : 'var(--text-secondary)'} />
-                      <span style={{ fontWeight: 700, color: selectedPreset === key ? '#000' : 'var(--text-primary)' }}>{preset.name}</span>
-                    </div>
-                    <p style={{ fontSize: '0.8rem', color: selectedPreset === key ? 'rgba(0,0,0,0.7)' : 'var(--text-secondary)' }}>{preset.description}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Import from SCARI Evaluation & History */}
-            <div style={{
-              marginBottom: '2rem',
-              padding: '1.5rem',
-              background: 'linear-gradient(135deg, rgba(0, 243, 255, 0.05), rgba(176, 36, 255, 0.05))',
-              border: '1px solid var(--glass-border)',
-              borderRadius: '16px',
-              position: 'relative',
-              overflow: 'hidden'
-            }}>
-              <div style={{ 
-                position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', 
-                background: 'linear-gradient(to bottom, #00f3ff, #b024ff)' 
-              }} />
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showHistory ? '1.5rem' : 0 }}>
-                <div>
-                  <h4 style={{ fontWeight: 700, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem' }}>
-                    <BarChart3 size={20} color="#00f3ff" />
-                    Evaluation Source
-                  </h4>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    {evalResults?.sustainability 
-                      ? `Latest Run: PUE ${evalResults.sustainability.pue_optimized?.toFixed(3)}, ${evalResults.sustainability.energy_savings_percent?.toFixed(1)}% savings`
-                      : 'No active evaluation results loaded'}
-                  </p>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <button
-                    onClick={fetchHistory}
-                    style={{
-                      padding: '0.6rem 1.2rem',
-                      background: showHistory ? 'rgba(255,255,255,0.1)' : 'transparent',
-                      border: '1px solid var(--glass-border)',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                      fontSize: '0.85rem',
-                      color: 'var(--text-primary)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    <Share2 size={16} /> History
-                  </button>
-
-                  <button
-                    onClick={() => importFromEval(evalResults)}
-                    disabled={!evalResults?.sustainability}
-                    style={{
-                      padding: '0.6rem 1.2rem',
-                      background: evalResults?.sustainability ? 'var(--gradient-main)' : 'rgba(255,255,255,0.05)',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: evalResults?.sustainability ? 'pointer' : 'not-allowed',
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
-                      color: evalResults?.sustainability ? '#000' : 'var(--text-secondary)',
-                      opacity: evalResults?.sustainability ? 1 : 0.5,
-                      boxShadow: evalResults?.sustainability ? '0 0 15px rgba(0, 243, 255, 0.3)' : 'none'
-                    }}
-                  >
-                    Import Latest
-                  </button>
-                </div>
-              </div>
-
-              {/* History List */}
-              {showHistory && (
-                <div style={{ 
-                  marginTop: '1rem', 
-                  borderTop: '1px solid var(--glass-border)', 
-                  paddingTop: '1rem',
-                  animation: 'fadeIn 0.3s ease' 
-                }}>
-                  <h5 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Select a past run to import parameters:</span>
-                    {loadingHistory && <Loader2 size={16} className="spin" />}
-                  </h5>
-                  
-                  <div style={{ display: 'grid', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                    {history.length === 0 && !loadingHistory ? (
-                      <p style={{ fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--text-secondary)' }}>No history found.</p>
-                    ) : (
-                      history.map((run) => (
-                        <div key={run.id} style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '1rem',
-                          background: 'rgba(0,0,0,0.2)',
-                          border: '1px solid var(--glass-border)',
-                          borderRadius: '10px',
-                          transition: 'all 0.2s ease',
-                          cursor: 'pointer'
-                        }}
-                        className="history-item"
-                        onClick={() => loadHistoricalRun(run.id)}
-                        >
-                          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                            <div style={{ 
-                              width: '32px', height: '32px', borderRadius: '8px', 
-                              background: 'var(--glass-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' 
-                            }}>
-                              <TrendingUp size={16} color="var(--success)" />
-                            </div>
-                            <div>
-                              <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{run.timestamp}</p>
-                              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                {run.steps.toLocaleString()} steps • PUE: <span style={{ color: '#fff' }}>{run.pue ? run.pue.toFixed(3) : 'N/A'}</span>
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <div style={{ textAlign: 'right' }}>
-                            <p style={{ fontWeight: 700, color: 'var(--success)', fontSize: '0.9rem' }}>
-                              {run.savings ? run.savings.toFixed(1) : '0'}% Saved
-                            </p>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textDecoration: 'underline' }}>Load Config</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Manual Configuration */}
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Settings size={16} /> Manual Configuration
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Number of Servers
-                </label>
-                <input
-                  type="number"
-                  value={formData.num_servers}
-                  onChange={(e) => handleInputChange('num_servers', parseInt(e.target.value) || 0)}
-                  className="input-field"
-                />
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Total physical servers in facility</p>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Network Topology
-                </label>
-                <select
-                  value={formData.topology}
-                  onChange={(e) => handleInputChange('topology', e.target.value)}
-                  className="input-field"
-                >
-                  <option value="fat_tree">Fat-Tree (DCN)</option>
-                  <option value="clos">Clos (Folded)</option>
-                  <option value="spine_leaf">Spine-Leaf</option>
-                  <option value="three_tier">Traditional 3-Tier</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Annual Power (kWh)
-                </label>
-                <input
-                  type="number"
-                  value={formData.annual_power_kwh}
-                  onChange={(e) => handleInputChange('annual_power_kwh', parseFloat(e.target.value) || 0)}
-                  className="input-field"
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Region
-                </label>
-                <select
-                  value={formData.region}
-                  onChange={(e) => handleInputChange('region', e.target.value)}
-                  className="input-field"
-                >
-                  <option value="EU">Europe (avg €0.12/kWh)</option>
-                  <option value="US">USA (avg $0.10/kWh)</option>
-                  <option value="ASIA">Asia (avg $0.08/kWh)</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Baseline PUE (Current)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.baseline_pue}
-                  onChange={(e) => handleInputChange('baseline_pue', parseFloat(e.target.value) || 1)}
-                  className="input-field"
-                />
-                <ProgressBar value={formData.baseline_pue - 1} max={1} color="var(--danger)" />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                  Optimized PUE (with S.C.A.R.I)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.optimized_pue}
-                  onChange={(e) => handleInputChange('optimized_pue', parseFloat(e.target.value) || 1)}
-                  className="input-field"
-                />
-                <ProgressBar value={formData.optimized_pue - 1} max={1} color="var(--success)" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Analysis Options Tab */}
-        {activeTab === 'analysis' && (
-          <div>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1.5rem' }}>
-              Select which analyses to include:
-            </h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {[
-                { key: 'operational', icon: Zap, label: 'Operational Carbon', desc: 'Energy consumption & running emissions' },
-                { key: 'embodied', icon: Leaf, label: 'Embodied Carbon', desc: 'Manufacturing & hardware emissions' },
-                { key: 'network', icon: Share2, label: 'Network Topology', desc: 'Switch/router infrastructure analysis' },
-                { key: 'roi', icon: CircleDollarSign, label: 'ROI Analysis', desc: 'Financial return projections' }
-              ].map(({ key, icon: Icon, label, desc }) => (
-                <div
-                  key={key}
-                  onClick={() => toggleAnalysisOption(key)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '1.25rem',
-                    background: analysisOptions[key] ? 'rgba(0, 255, 136, 0.1)' : 'var(--glass-bg)',
-                    border: `1px solid ${analysisOptions[key] ? 'var(--success)' : 'var(--glass-border)'}`,
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <Icon size={22} color={analysisOptions[key] ? 'var(--success)' : 'var(--text-secondary)'} />
-                    <div>
-                      <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{label}</p>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{desc}</p>
-                    </div>
-                  </div>
-                  {analysisOptions[key] ? (
-                    <ToggleRight size={28} color="var(--success)" />
-                  ) : (
-                    <ToggleLeft size={28} color="var(--text-secondary)" />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* ROI specific inputs */}
-            {analysisOptions.roi && (
-              <div style={{ marginTop: '2rem', padding: '1.5rem', background: 'var(--glass-bg)', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-                <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <DollarSign size={18} /> ROI Parameters
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                      Investment Required (€)
-                    </label>
-                    <input
-                      type="number"
-                      value={roiData.investment_eur}
-                      onChange={(e) => handleRoiChange('investment_eur', parseFloat(e.target.value) || 0)}
-                      className="input-field"
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                      Expected Annual Savings (€)
-                    </label>
-                    <input
-                      type="number"
-                      value={roiData.annual_savings_eur}
-                      onChange={(e) => handleRoiChange('annual_savings_eur', parseFloat(e.target.value) || 0)}
-                      className="input-field"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Results Tab */}
-        {activeTab === 'results' && (
-          <div>
-            {!results ? (
-              <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
-                <BarChart3 size={48} color="var(--text-secondary)" style={{ marginBottom: '1rem' }} />
-                <h3 style={{ marginBottom: '0.5rem' }}>No Results Yet</h3>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>Configure your datacenter and run an analysis</p>
-                <button
-                  onClick={() => setActiveTab('config')}
-                  style={{
-                    background: 'var(--gradient-success)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '0.75rem 1.5rem',
-                    cursor: 'pointer',
-                    fontWeight: 600,
-                    color: '#000'
-                  }}
-                >
-                  Go to Configuration
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                {/* Summary Cards */}
-                {results.summary && (
-                  <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <PieChart size={16} /> Summary
-                    </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-                      <MetricCard label="DC Size" value={results.summary.datacenter_size} unit="" icon={Server} color="#00f3ff" />
-                      <MetricCard label="Total Switches" value={results.summary.total_switches} unit="" icon={Share2} color="#00ff88" />
-                      <MetricCard label="Annual Carbon" value={(results.summary.total_annual_carbon_kg / 1000).toFixed(1)} unit="tons CO₂" icon={Leaf} color="#ff9500" />
-                      {results.summary.breakeven_years && (
-                        <MetricCard label="Break-even" value={results.summary.breakeven_years} unit="years" icon={TrendingUp} color="#00d4aa" />
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Operational Results */}
-                {results.operational && (
-                  <div className="card" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Zap size={20} color="var(--success)" /> Operational Carbon
-                      </h3>
-                      <span className="badge" style={{ background: 'rgba(0, 255, 136, 0.2)', color: 'var(--success)' }}>ENERGY</span>
-                    </div>
-                    {results.operational.improvements && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                        <MetricCard
-                          label="CO₂ Reduction"
-                          value={results.operational.improvements.co2_reduction_kg?.toLocaleString() || 'N/A'}
-                          unit="kg/yr"
-                          icon={TrendingDown}
-                          color="#00ff88"
-                        />
-                        <MetricCard
-                          label="Cost Savings"
-                          value={`€${results.operational.improvements.cost_savings_eur?.toLocaleString() || 'N/A'}`}
-                          unit="/yr"
-                          icon={DollarSign}
-                          color="#4CAF50"
-                        />
-                        <MetricCard
-                          label="Break-Even"
-                          value={results.operational.improvements.breakeven_years === null ? '∞' : results.operational.improvements.breakeven_years}
-                          unit="years"
-                          icon={TrendingUp}
-                          color="#00d4aa"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Embodied Results */}
-                {results.embodied && (
-                  <div className="card" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Leaf size={20} color="#ff9500" /> Embodied Carbon
-                      </h3>
-                      <span className="badge" style={{ background: 'rgba(255, 149, 0, 0.2)', color: '#ff9500' }}>MANUFACTURING</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                      <MetricCard
-                        label="Total Embodied"
-                        value={(results.embodied.total_embodied_co2_kg / 1000).toFixed(1)}
-                        unit="tons CO₂"
-                        icon={Factory}
-                        color="#ff9500"
-                        subtitle="One-time manufacturing emissions"
-                      />
-                      <MetricCard
-                        label="Annual Amortized"
-                        value={results.embodied.annual_amortized_co2_kg?.toLocaleString() || 'N/A'}
-                        unit="kg/yr"
-                        icon={Thermometer}
-                        color="#ff6b00"
-                        subtitle="Spread over equipment lifespan"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Network Results */}
-                {results.network && (
-                  <div className="card" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Share2 size={20} color="#00f3ff" /> Network Topology
-                      </h3>
-                      <span className="badge" style={{ background: 'rgba(0, 243, 255, 0.2)', color: '#00f3ff' }}>INFRASTRUCTURE</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                      <MetricCard label="Total Switches" value={results.network.total_switches} unit="" icon={Server} color="#00f3ff" />
-                      <MetricCard label="Spine" value={results.network.spine_switches || 0} unit="" icon={Share2} color="#00d4d4" />
-                      <MetricCard label="Leaf" value={results.network.leaf_switches || 0} unit="" icon={Share2} color="#00aaaa" />
-                      <MetricCard label="Network CO₂" value={(results.network.network_co2_kg / 1000).toFixed(2)} unit="tons" icon={Leaf} color="#00ff88" />
-                    </div>
-                  </div>
-                )}
-
-                {/* ROI Results */}
-                {results.roi && (
-                  <div className="card" style={{ padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <DollarSign size={20} color="#00ff88" /> ROI Analysis
-                      </h3>
-                      <span className="badge" style={{ background: 'rgba(0, 255, 136, 0.2)', color: '#00ff88' }}>FINANCIAL</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                      <MetricCard
-                        label="Annual ROI"
-                        value={`${results.roi.roi_percent_annual?.toFixed(1) || 'N/A'}%`}
-                        unit=""
-                        icon={TrendingUp}
-                        color="#00ff88"
-                      />
-                      <MetricCard
-                        label="Payback Period"
-                        value={results.roi.payback_period_years === null ? '∞' : results.roi.payback_period_years?.toFixed(1)}
-                        unit="years"
-                        icon={RefreshCw}
-                        color="#00d4aa"
-                      />
-                      <MetricCard
-                        label="10-Year Benefit"
-                        value={`€${(results.roi.ten_year_net_benefit_eur / 1000).toFixed(0)}k`}
-                        unit=""
-                        icon={CircleDollarSign}
-                        color="#b024ff"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Environmental Impact */}
-                {results.operational?.improvements?.co2_reduction_kg && (
-                  <div style={{
-                    background: 'linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 212, 212, 0.1))',
-                    border: '1px solid rgba(0, 255, 136, 0.3)',
-                    borderRadius: '16px',
-                    padding: '2rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2rem'
-                  }}>
-                    <TreePine size={48} color="var(--success)" />
-                    <div>
-                      <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '0.5rem' }}>Environmental Impact</h3>
-                      <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                        Your CO₂ reduction is equivalent to planting approximately{' '}
-                        <span style={{ fontWeight: 700, color: 'var(--success)' }}>
-                          {Math.round(results.operational.improvements.co2_reduction_kg / 21).toLocaleString()} trees
-                        </span>{' '}
-                        every year.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Run Analysis Button */}
-        {activeTab !== 'results' && (
-          <button
-            onClick={runAnalysis}
-            disabled={isLoading}
-            style={{
-              width: '100%',
-              marginTop: '2rem',
-              padding: '1rem',
-              background: isLoading ? 'var(--glass-bg)' : 'var(--gradient-success)',
-              color: isLoading ? 'var(--text-secondary)' : '#000',
-              border: 'none',
-              borderRadius: '12px',
-              fontSize: '1rem',
-              fontWeight: 700,
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.75rem',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            {isLoading ? <Loader2 size={20} className="spin" /> : <Play size={20} />}
-            {isLoading ? 'Running Analysis...' : 'Run Full Analysis'}
+        {results && (
+          <button className="btn btn-outline btn-sm" onClick={exportResults}>
+            <Download size={12} />
+            Export
           </button>
         )}
       </div>
 
-      <style>{`
-        .calculator-container { width: 100%; }
-        .spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        .history-item:hover {
-          background: rgba(0, 243, 255, 0.1) !important;
-          border-color: rgba(0, 243, 255, 0.3) !important;
-          transform: translateX(5px);
-        }
-      `}</style>
+      {/* ── TABS ───────────────────────────────────────────── */}
+      <div className="tab-bar">
+        {[
+          { id: 'config',   label: 'Configuration' },
+          { id: 'analysis', label: 'Analysis Options' },
+          { id: 'results',  label: 'Results' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── LIVE ESTIMATE BANNER ───────────────────────────── */}
+      {activeTab !== 'results' && (
+        <div className="card" style={{
+          marginBottom: '24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '14px',
+          borderLeft: '3px solid var(--success)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Zap size={14} color="var(--success)" />
+            <span style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Live Projection
+            </span>
+            <span className="badge" style={{ fontWeight: 500 }}>
+              {estimatedSavings.regionInfo.label} · {estimatedSavings.regionInfo.currency}{estimatedSavings.regionInfo.price}/kWh
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+            <div>
+              <div className="text-label">Energy Saved</div>
+              <div style={{ fontWeight: 800, color: 'var(--success)', fontSize: '20px', letterSpacing: '-0.02em', marginTop: '2px' }}>
+                {estimatedSavings.energySavedKwh >= 1_000_000
+                  ? `${(estimatedSavings.energySavedKwh / 1_000_000).toFixed(1)} GWh`
+                  : `${(estimatedSavings.energySavedKwh / 1000).toFixed(0)} MWh`}
+              </div>
+            </div>
+            <div>
+              <div className="text-label">Cost Delta</div>
+              <div style={{ fontWeight: 800, color: 'var(--success)', fontSize: '20px', letterSpacing: '-0.02em', marginTop: '2px' }}>
+                {estimatedSavings.regionInfo.currency}{estimatedSavings.costSaved >= 1_000_000
+                  ? `${(estimatedSavings.costSaved / 1_000_000).toFixed(1)}M`
+                  : estimatedSavings.costSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div>
+              <div className="text-label">CO₂ Offset</div>
+              <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '20px', letterSpacing: '-0.02em', marginTop: '2px' }}>
+                {estimatedSavings.co2Saved >= 1000
+                  ? `${(estimatedSavings.co2Saved / 1000).toFixed(1)} t`
+                  : `${estimatedSavings.co2Saved.toFixed(0)} kg`}
+              </div>
+            </div>
+            <div>
+              <div className="text-label">PUE Δ</div>
+              <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '20px', letterSpacing: '-0.02em', marginTop: '2px' }}>
+                {estimatedSavings.pueReduction.toFixed(1)}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          CONFIGURATION TAB
+          ══════════════════════════════════════════════════ */}
+      {activeTab === 'config' && (
+        <div>
+          {/* Quick Presets */}
+          <div className="card-title">
+            <Server size={11} />
+            Quick Presets
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '28px' }}>
+            {Object.entries(PRESETS).map(([key, preset]) => (
+              <button
+                key={key}
+                onClick={() => applyPreset(key)}
+                className={`card ${selectedPreset === key ? 'selected' : ''}`}
+                style={{
+                  padding: '16px',
+                  background: selectedPreset === key ? 'var(--border-strong)' : 'var(--surface)',
+                  border: `1px solid ${selectedPreset === key ? 'var(--border-strong)' : 'var(--border)'}`,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <preset.icon size={15} color={selectedPreset === key ? 'var(--text-inverse)' : 'var(--text-secondary)'} />
+                  <span style={{ fontWeight: 700, fontSize: '13px', color: selectedPreset === key ? 'var(--text-inverse)' : 'var(--text)' }}>
+                    {preset.name}
+                  </span>
+                </div>
+                <p style={{ fontSize: '11px', color: selectedPreset === key ? 'var(--text-inverse)' : 'var(--muted)', opacity: 0.85, lineHeight: 1.4 }}>
+                  {preset.description}
+                </p>
+              </button>
+            ))}
+          </div>
+
+          {/* Telemetry Import */}
+          <div className="card" style={{ marginBottom: '28px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                  {isLocked ? <Lock size={13} color="var(--accent)" /> : <Unlock size={13} color="var(--muted)" />}
+                  <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '12px' }}>
+                    Telemetry Source
+                  </span>
+                  {isLocked && <span className="badge badge-accent">Locked</span>}
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
+                  {evalResults?.sustainability
+                    ? `Active: ${evalResults.sustainability.energy_savings_percent?.toFixed(1) ?? '—'}% optimisation detected`
+                    : 'No external telemetry linked'}
+                </p>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="btn btn-outline btn-sm" onClick={fetchHistory}>
+                  {loadingHistory ? <Loader2 size={11} className="spin" /> : <Clock size={11} />}
+                  History
+                </button>
+
+                <button
+                  className={`btn btn-sm ${evalResults?.sustainability ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => importFromEval(evalResults)}
+                  disabled={!evalResults?.sustainability}
+                >
+                  Import Latest
+                </button>
+
+                {isLocked && (
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => { setIsLocked(false); onToast?.('Fields unlocked for manual editing', 'success'); }}
+                    title="Unlock fields for manual editing"
+                  >
+                    <Unlock size={11} />
+                    Unlock
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* History List */}
+            {showHistory && (
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <span className="text-label">Select a historical run</span>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {loadingHistory && <Loader2 size={12} className="spin" color="var(--muted)" />}
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowHistory(false)} style={{ padding: '3px' }}>
+                      <span style={{ fontSize: '11px' }}>Close</span>
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
+                  {history.length === 0 && !loadingHistory ? (
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic' }}>No history found.</p>
+                  ) : (
+                    history.map((run) => (
+                      <div
+                        key={run.id}
+                        className="group"
+                        onClick={() => loadHistoricalRun(run.id)}
+                        style={{ padding: '10px 12px' }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontWeight: 600, fontSize: '12px' }}>{run.timestamp}</p>
+                          <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                            {run.steps?.toLocaleString()} steps · PUE {run.pue ? run.pue.toFixed(3) : 'N/A'}
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                          <span style={{ fontWeight: 700, color: 'var(--success)', fontSize: '12px' }}>
+                            {run.savings ? run.savings.toFixed(1) : '0'}%
+                          </span>
+                          <button 
+                            className="btn btn-ghost btn-sm" 
+                            onClick={(e) => deleteHistoricalRun(run.id, e)}
+                            style={{ padding: '3px', color: 'var(--danger)' }}
+                            title="Delete this run"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Manual Input */}
+          <div className="card-title">
+            <Settings size={11} />
+            Manual Configuration
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+            <div>
+              <label>Number of Servers</label>
+              <input
+                type="number"
+                value={formData.num_servers}
+                onChange={e => handleInputChange('num_servers', parseInt(e.target.value) || 0)}
+                disabled={isLocked}
+              />
+              <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>Physical servers in facility</p>
+            </div>
+
+            <div>
+              <label>Network Topology</label>
+              <select value={formData.topology} onChange={e => handleInputChange('topology', e.target.value)} disabled={isLocked}>
+                <option value="fat_tree">Fat-Tree (full bisection BW)</option>
+                <option value="clos">Clos (3-tier folded)</option>
+                <option value="spine_leaf">Spine-Leaf (2-tier)</option>
+                <option value="three_tier">3-Tier Traditional</option>
+              </select>
+            </div>
+
+            <div>
+              <label>Annual IT Power (kWh)</label>
+              <input
+                type="number"
+                value={formData.annual_power_kwh}
+                onChange={e => handleInputChange('annual_power_kwh', parseFloat(e.target.value) || 0)}
+                disabled={isLocked}
+              />
+              <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>
+                IT equipment load only — overhead added via PUE
+              </p>
+            </div>
+
+            <div>
+              <label>Region</label>
+              <select value={formData.region} onChange={e => handleInputChange('region', e.target.value)} disabled={isLocked}>
+                {Object.entries(REGION_DATA).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label} ({v.currency}{v.price}/kWh · {v.intensity} kgCO₂/kWh)</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label>Baseline PUE (current facility)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="1.0"
+                max="3.0"
+                value={formData.baseline_pue}
+                onChange={e => handleInputChange('baseline_pue', parseFloat(e.target.value) || 1)}
+                disabled={isLocked}
+              />
+              <PUEBar value={formData.baseline_pue} label="Baseline efficiency" isOptimized={false} />
+            </div>
+
+            <div>
+              <label>Optimised PUE (with S.C.A.R.I)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="1.0"
+                max="3.0"
+                value={formData.optimized_pue}
+                onChange={e => handleInputChange('optimized_pue', parseFloat(e.target.value) || 1)}
+                disabled={isLocked}
+              />
+              <PUEBar value={formData.optimized_pue} label="Optimised efficiency" isOptimized={true} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          ANALYSIS OPTIONS TAB
+          ══════════════════════════════════════════════════ */}
+      {activeTab === 'analysis' && (
+        <div>
+          <div className="card-title">Select Analyses to Run</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+            {[
+              { key: 'operational', label: 'Operational Carbon', desc: 'Yearly energy consumption and running CO₂ emissions', icon: Zap },
+              { key: 'embodied',    label: 'Embodied Carbon',    desc: 'Manufacturing, transport and end-of-life hardware emissions', icon: Factory },
+              { key: 'network',     label: 'Network Topology',   desc: 'Switch/router infrastructure analysis and carbon impact', icon: Share2 },
+              { key: 'roi',        label: 'ROI Analysis',       desc: 'Financial return on investment projections over 10 years', icon: DollarSign }
+            ].map(({ key, label, desc, icon: ItemIcon }) => (
+              <div
+                key={key}
+                onClick={() => toggleAnalysisOption(key)}
+                className="card"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '14px 16px',
+                  background: analysisOptions[key] ? 'var(--border-strong)' : 'var(--surface)',
+                  cursor: 'pointer',
+                  transition: 'all 0.12s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <ItemIcon size={15} color={analysisOptions[key] ? 'var(--text-inverse)' : 'var(--muted)'} />
+                  <div>
+                    <p style={{ fontWeight: 600, fontSize: '13px', color: analysisOptions[key] ? 'var(--text-inverse)' : 'var(--text)' }}>
+                      {label}
+                    </p>
+                    <p style={{ fontSize: '11px', color: analysisOptions[key] ? 'var(--text-inverse)' : 'var(--muted)', marginTop: '1px', opacity: 0.8 }}>
+                      {desc}
+                    </p>
+                  </div>
+                </div>
+                {analysisOptions[key]
+                  ? <CheckCircle2 size={16} color="var(--text-inverse)" />
+                  : <div style={{ width: 16, height: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', flexShrink: 0 }} />
+                }
+              </div>
+            ))}
+          </div>
+
+          {/* ROI inputs */}
+          {analysisOptions.roi && (
+            <div className="card animate-fade-in">
+              <div className="card-title">
+                <DollarSign size={11} />
+                ROI Parameters
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label>Capital Investment (€)</label>
+                  <input
+                    type="number"
+                    value={roiData.investment_eur}
+                    onChange={e => setRoiData(prev => ({ ...prev, investment_eur: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div>
+                  <label>Expected Annual Savings (€)</label>
+                  <input
+                    type="number"
+                    value={roiData.annual_savings_eur}
+                    onChange={e => setRoiData(prev => ({ ...prev, annual_savings_eur: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          RESULTS TAB
+          ══════════════════════════════════════════════════ */}
+      {activeTab === 'results' && (
+        <div>
+          {!results ? (
+            <div style={{ textAlign: 'center', padding: '80px 40px' }}>
+              <div style={{ 
+                width: '56px', height: '56px', borderRadius: '50%', 
+                background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <BarChart3 size={24} color="var(--muted)" />
+              </div>
+              <h3 style={{ marginBottom: '6px' }}>No Results Yet</h3>
+              <p style={{ color: 'var(--muted)', fontSize: '13px', marginBottom: '20px' }}>
+                Configure your datacenter and run an analysis
+              </p>
+              <button className="btn btn-primary" onClick={() => setActiveTab('config')}>
+                Go to Configuration
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+              {/* Summary row */}
+              {results.summary && (
+                <div>
+                  <div className="card-title">Summary</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
+                    <MetricCard label="DC Size"       value={results.summary.datacenter_size}  icon={Server} />
+                    <MetricCard label="Total Switches" value={results.summary.total_switches}    icon={Share2} />
+                    <MetricCard
+                      label="Annual Carbon"
+                      value={(results.summary.total_annual_carbon_kg / 1000).toFixed(1)}
+                      unit="t CO₂"
+                      icon={Leaf}
+                    />
+                    {results.summary.breakeven_years && (
+                      <MetricCard label="Break-even" value={results.summary.breakeven_years} unit="yr" icon={TrendingUp} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Operational */}
+              {results.operational && (
+                <div className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                      <Zap size={15} color="var(--success)" /> Operational Carbon
+                    </h3>
+                    <span className="badge badge-success">ENERGY</span>
+                  </div>
+                  {results.operational.improvements && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                      <MetricCard
+                        label="CO₂ Reduction"
+                        value={(results.operational.improvements.co2_reduction_kg / 1000).toFixed(1)}
+                        unit="t/yr"
+                        icon={TrendingDown}
+                        accent
+                      />
+                      <MetricCard
+                        label="Cost Savings"
+                        value={`€${(results.operational.improvements.cost_savings_eur / 1000).toFixed(0)}k`}
+                        unit="/yr"
+                        icon={DollarSign}
+                        accent
+                      />
+                      <MetricCard
+                        label="Break-Even"
+                        value={results.operational.improvements.breakeven_years === null ? '∞' : results.operational.improvements.breakeven_years}
+                        unit="yr"
+                        icon={TrendingUp}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Embodied */}
+              {results.embodied && (
+                <div className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                      <Leaf size={15} color="var(--text-secondary)" /> Embodied Carbon
+                    </h3>
+                    <span className="badge">MANUFACTURING</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                    <MetricCard
+                      label="Total Embodied"
+                      value={(results.embodied.total_embodied_co2_kg / 1000).toFixed(1)}
+                      unit="t CO₂"
+                      icon={Factory}
+                      subtitle="One-time manufacturing emissions"
+                    />
+                    <MetricCard
+                      label="Annual Amortised"
+                      value={results.embodied.annual_amortized_co2_kg?.toLocaleString() ?? 'N/A'}
+                      unit="kg/yr"
+                      subtitle="Spread over equipment lifespan"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Network */}
+              {results.network && (
+                <div className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                      <Share2 size={15} color="var(--accent)" /> Network Topology
+                    </h3>
+                    <span className="badge badge-accent">INFRASTRUCTURE</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
+                    <MetricCard label="Total Switches" value={results.network.total_switches} unit="" icon={Server} />
+                    <MetricCard label="Network Carbon" value={(results.network.total_embodied_carbon_kg / 1000).toFixed(2)} unit="t CO₂" icon={Leaf} />
+                    <MetricCard label="Net Power" value={`${(results.network.estimated_network_power_w / 1000).toFixed(1)}`} unit="kW" />
+                  </div>
+                </div>
+              )}
+
+              {/* ROI */}
+              {results.roi && (
+                <div className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                      <DollarSign size={15} color="var(--success)" /> ROI Analysis
+                    </h3>
+                    <span className="badge badge-success">FINANCIAL</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '14px' }}>
+                    <MetricCard
+                      label="Annual ROI"
+                      value={`${results.roi.roi_percent_annual?.toFixed(1) ?? 'N/A'}%`}
+                      icon={TrendingUp}
+                      accent
+                    />
+                    <MetricCard
+                      label="Payback Period"
+                      value={results.roi.payback_period_years === null ? '∞' : results.roi.payback_period_years?.toFixed(1)}
+                      unit="yr"
+                      icon={RefreshCw}
+                    />
+                    <MetricCard
+                      label="10-yr Net Benefit"
+                      value={`€${(results.roi.ten_year_net_benefit_eur / 1000).toFixed(0)}k`}
+                      icon={CircleDollarSign}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Environmental callout */}
+              {results.operational?.improvements?.co2_reduction_kg && (
+                <div className="card" style={{
+                  display: 'flex', alignItems: 'center', gap: '20px',
+                  borderLeft: '3px solid var(--success)'
+                }}>
+                  <TreePine size={28} color="var(--success)" style={{ flexShrink: 0 }} />
+                  <div>
+                    <h3 style={{ marginBottom: '4px' }}>Environmental Offset</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                      Carbon reduction equivalent to{' '}
+                      <strong style={{ color: 'var(--success)' }}>
+                        {Math.round(results.operational.improvements.co2_reduction_kg / 21).toLocaleString()} mature trees
+                      </strong>{' '}
+                      added to the ecosystem annually.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── RUN BUTTON ────────────────────────────────────── */}
+      {activeTab !== 'results' && (
+        <button
+          onClick={runAnalysis}
+          disabled={isLoading}
+          className="btn btn-primary"
+          style={{ width: '100%', marginTop: '28px', height: '44px', fontSize: '13px' }}
+        >
+          {isLoading ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
+          {isLoading ? 'Computing…' : 'Execute Analysis'}
+        </button>
+      )}
     </div>
   );
 };

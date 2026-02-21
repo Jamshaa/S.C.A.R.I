@@ -1,24 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Activity, Settings, Play, BarChart3, Cpu, Thermometer, 
-  Zap, ShieldCheck, ChevronRight, RefreshCw, Terminal, 
-  Download, AlertCircle, CheckCircle2, Loader2, Info,
-  Brain, MessageSquare, History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
-  Boxes
+  Activity, Play, BarChart3, 
+  RefreshCw, AlertCircle, CheckCircle2, Loader2,
+  History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
+  ChevronRight, Download, Cpu, Zap, ThermometerSun,
+  Shield, TrendingDown, TreePine
 } from 'lucide-react';
 import DataCenterCalculator from './DataCenterCalculator';
 import { API_BASE } from './config';
 
+/* ── UTILS ──────────────────────────────────────────────────── */
 const fetchWithRetry = async (url, options = {}, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
       if (res.ok) return res;
-      // If 4xx error (client side), do not retry
       if (res.status >= 400 && res.status < 500) throw new Error(await res.text());
       throw new Error(`Request failed: ${res.status}`); 
     } catch (e) {
-      // Don't retry if request was aborted
       if (e.name === 'AbortError') return null;
       if (i === retries - 1) throw e;
       await new Promise(r => setTimeout(r, 1000 * (i + 1))); 
@@ -26,33 +25,38 @@ const fetchWithRetry = async (url, options = {}, retries = 3) => {
   }
 };
 
-// Simple Toast Component
+const fmt = (n, decimals = 0) => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
+  return n.toFixed(decimals);
+};
+
+/* ── TOAST ──────────────────────────────────────────────────── */
 const Toast = ({ message, type }) => (
-  <div className={`toast animate-fade-in ${type}`}>
-    {type === 'success' ? <CheckCircle2 size={20} color="var(--success)" /> : <AlertCircle size={20} color="var(--danger)" />}
-    <span style={{ fontSize: '0.9rem' }}>{message}</span>
+  <div className={`toast animate-slide-up ${type}`}>
+    {type === 'success'
+      ? <CheckCircle2 size={15} color="var(--success)" />
+      : <AlertCircle size={15} color="var(--danger)" />}
+    <span>{message}</span>
   </div>
 );
 
+/* ── MAIN APP ────────────────────────────────────────────────── */
 const App = () => {
-  // Core Model State
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   
-  // Training State
   const [isTraining, setIsTraining] = useState(false);
   const [trainingSteps, setTrainingSteps] = useState(600000);
   const [trainingName, setTrainingName] = useState('scari_thermal_safe');
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [lastLog, setLastLog] = useState('');
   
-  // Evaluation State
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalSteps, setEvalSteps] = useState(5000);
   const [evalLog, setEvalLog] = useState('');
   const [results, setResults] = useState(null);
   
-  // UI State
   const [selectedDecision, setSelectedDecision] = useState(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState('');
@@ -60,20 +64,16 @@ const App = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState('');
   const [toasts, setToasts] = useState([]);
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  );
   const [mainTab, setMainTab] = useState('analytics');
 
-  // State refs for polling (avoids stale closures)
   const isTrainingRef = React.useRef(isTraining);
   const isEvaluatingRef = React.useRef(isEvaluating);
   
-  React.useEffect(() => {
-    isTrainingRef.current = isTraining;
-  }, [isTraining]);
-
-  React.useEffect(() => {
-    isEvaluatingRef.current = isEvaluating;
-  }, [isEvaluating]);
+  React.useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
+  React.useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -81,17 +81,14 @@ const App = () => {
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
-  // Polling loop
   useEffect(() => {
     fetchModels();
-    
     let isMounted = true;
     const poll = async () => {
       if (!isMounted) return;
       await fetchStatus();
       if (isMounted) setTimeout(poll, 2000);
     };
-    
     const timeout = setTimeout(poll, 2000);
     return () => {
       isMounted = false;
@@ -106,13 +103,14 @@ const App = () => {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
+  /* ── API CALLS ─────────────────────────────────────────────── */
   const fetchModels = async () => {
     try {
       const res = await fetchWithRetry(`${API_BASE}/models`);
       if (!res) return;
       const data = await res.json();
       setModels(data.models || []);
-      if (data.models && data.models.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
+      if (data.models?.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
     } catch (e) {
       console.error('Error fetching models', e);
       addToast('Failed to connect to backend', 'error');
@@ -122,32 +120,25 @@ const App = () => {
   const fetchStatus = async () => {
     try {
       const res = await fetchWithRetry(`${API_BASE}/status`);
-      if (!res) return; // Request was aborted
+      if (!res) return;
       const data = await res.json();
       
-      // Use ref to avoid stale closure
       const wasTraining = isTrainingRef.current;
       const nowTraining = data.is_training;
       
-      if (nowTraining !== wasTraining) {
-        setIsTraining(nowTraining);
-      }
+      if (nowTraining !== wasTraining) setIsTraining(nowTraining);
       
       if (nowTraining) {
         setLastLog(data.last_log);
         setTrainingProgress(data.progress || 0);
-      } else {
-        // Training stopped - either completed or error
-        if (wasTraining && !nowTraining) {
-          // Training just finished!
-          setTrainingProgress(100);
-          addToast('Training completed successfully! Refreshing models...', 'success');
-          setTimeout(() => {
-            setTrainingProgress(0);
-            setLastLog('');
-            fetchModels(); // Refresh model list
-          }, 1500);
-        }
+      } else if (wasTraining && !nowTraining) {
+        setTrainingProgress(100);
+        addToast('Training completed. Refreshing registry…', 'success');
+        setTimeout(() => {
+          setTrainingProgress(0);
+          setLastLog('');
+          fetchModels();
+        }, 1500);
       }
       
       const evalRes = await fetch(`${API_BASE}/evaluation-status`);
@@ -156,14 +147,10 @@ const App = () => {
       const wasEvaluating = isEvaluatingRef.current;
       const nowEvaluating = evalData.is_evaluating;
       
-      if (nowEvaluating !== wasEvaluating) {
-        setIsEvaluating(nowEvaluating);
-      }
-      
+      if (nowEvaluating !== wasEvaluating) setIsEvaluating(nowEvaluating);
       if (nowEvaluating) setEvalLog(evalData.last_log);
     } catch (e) { 
-      // Silent failure for status polling
-      console.debug("Status poll failed", e);
+      console.debug('Status poll failed', e);
     }
   };
 
@@ -192,13 +179,12 @@ const App = () => {
     }
     setIsEvaluating(true);
     setResults(null);
-    addToast(`Analysing ${selectedModel}...`, 'success');
+    addToast(`Evaluating ${selectedModel}…`, 'success');
     
     try {
       const startRes = await fetch(`${API_BASE}/evaluate?model_name=${selectedModel}&steps=${evalSteps}`, { method: 'POST' });
       if (!startRes.ok) throw new Error(await startRes.text());
       
-      // Polling for results
       const pollInterval = setInterval(async () => {
         try {
           const statusRes = await fetch(`${API_BASE}/evaluation-status`);
@@ -218,10 +204,10 @@ const App = () => {
             if (resultsData.metrics?.decisions?.length > 0) {
               setSelectedDecision(resultsData.metrics.decisions[0]);
             }
-            addToast('Evaluation complete. Dashboard updated.', 'success');
+            addToast('Evaluation complete', 'success');
           }
         } catch (err) {
-          console.error("Polling error:", err);
+          console.error('Polling error:', err);
         }
       }, 2000);
 
@@ -242,9 +228,10 @@ const App = () => {
       });
       if (!res.ok) throw new Error(await res.text());
       
-      addToast('Model renamed successfully', 'success');
-      setModels(prev => prev.map(m => m === renameTarget ? (newName.endsWith('.zip') ? newName : `${newName}.zip`) : m));
-      if (selectedModel === renameTarget) setSelectedModel(newName.endsWith('.zip') ? newName : `${newName}.zip`);
+      addToast('Model renamed', 'success');
+      const finalName = newName.endsWith('.zip') ? newName : `${newName}.zip`;
+      setModels(prev => prev.map(m => m === renameTarget ? finalName : m));
+      if (selectedModel === renameTarget) setSelectedModel(finalName);
       setIsRenaming(false);
       setNewName('');
     } catch (e) {
@@ -265,8 +252,6 @@ const App = () => {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    
-    // DELETE ALL
     if (deleteTarget === 'ALL') {
       try {
         const res = await fetch(`${API_BASE}/models`, { method: 'DELETE' });
@@ -278,9 +263,7 @@ const App = () => {
       } catch {
         addToast('Failed to delete all models', 'error');
       }
-    } 
-    // DELETE SINGLE
-    else {
+    } else {
       try {
         const res = await fetch(`${API_BASE}/models/${deleteTarget}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(await res.text());
@@ -295,628 +278,594 @@ const App = () => {
     setDeleteTarget('');
   };
 
+  /* ── MODAL OVERLAY ────────────────────────────────────────── */
+  const ModalOverlay = ({ children }) => (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: theme === 'dark' ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.3)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+    }}>
+      {children}
+    </div>
+  );
+
+  /* ── RENDER ────────────────────────────────────────────────── */
   return (
     <div className="app-container">
-      {/* Delete Confirmation Modal */}
+      {/* Delete Modal */}
       {isDeleting && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-        }}>
-          <div className="card animate-fade-in" style={{ width: '400px', padding: '2rem', border: '1px solid var(--danger)', boxShadow: '0 0 30px rgba(239, 68, 68, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem', color: 'var(--danger)' }}>
-               <AlertCircle size={32} />
-               <h3 style={{ fontSize: '1.2rem', color: 'var(--text-primary)' }}>Confirm Deletion</h3>
+        <ModalOverlay>
+          <div className="card animate-fade-in" style={{
+            width: '420px', padding: '28px',
+            border: '1px solid var(--danger)', margin: 0,
+            boxShadow: 'var(--shadow-lg)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', color: 'var(--danger)' }}>
+              <AlertCircle size={20} />
+              <h3 style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Confirm Deletion
+              </h3>
             </div>
-            
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              {deleteTarget === 'ALL' 
-                ? "Are you sure you want to DELETE ALL models? This action acts on the entire repository and cannot be undone."
-                : <span>Are you sure you want to delete <b style={{color: 'var(--text-primary)'}}>{deleteTarget}</b>? This action cannot be undone.</span>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.6 }}>
+              {deleteTarget === 'ALL'
+                ? 'Delete ALL models? This action cannot be undone.'
+                : <span>Delete <strong style={{ color: 'var(--text)' }}>{deleteTarget}</strong>? This cannot be undone.</span>
               }
             </p>
-            
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button className="btn-outline" onClick={() => setIsDeleting(false)}>Cancel</button>
-              <button 
-                className="btn-primary" 
-                style={{ background: '#ff3366', borderColor: '#ff3366', color: 'white' }}
-                onClick={confirmDelete}
-              >
-                {deleteTarget === 'ALL' ? 'DELETE EVERYTHING' : 'Delete Model'}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setIsDeleting(false)}>Cancel</button>
+              <button className="btn btn-danger" onClick={confirmDelete}>
+                {deleteTarget === 'ALL' ? 'Wipe Registry' : 'Delete'}
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Rename Modal */}
       {isRenaming && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
-        }}>
-          <div className="card animate-fade-in" style={{ width: '400px', padding: '2rem', border: '1px solid var(--accent-primary)' }}>
-            <h3 style={{ marginBottom: '1rem' }}>Rename Model</h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-              Renaming {renameTarget}
-            </p>
+        <ModalOverlay>
+          <div className="card animate-fade-in" style={{ width: '400px', padding: '28px', margin: 0, boxShadow: 'var(--shadow-lg)' }}>
+            <h3 style={{ textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px' }}>
+              Rename Model
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>{renameTarget}</p>
             <input 
-              className="input-field" 
               value={newName} 
               onChange={e => setNewName(e.target.value)}
-              placeholder="New model name..."
+              onKeyDown={e => e.key === 'Enter' && handleRename()}
+              placeholder="new_identifier"
               autoFocus
             />
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', justifyContent: 'flex-end' }}>
-              <button className="btn-outline" onClick={() => setIsRenaming(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleRename}>Confirm Rename</button>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setIsRenaming(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleRename}>Update</button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
       
-      {/* Sidebar */}
+      {/* ═══════════════════════════════════════════════════════
+          SIDEBAR
+          ═══════════════════════════════════════════════════ */}
       <aside className="sidebar">
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div className="pulse" style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary))', padding: '0.6rem', borderRadius: '12px', boxShadow: '0 0 20px var(--accent-glow)' }}>
-              <Cpu size={24} color="#000" />
-            </div>
-            <div>
-              <h1 className="title-gradient" style={{ fontSize: '1.5rem', lineHeight: 1 }}>S.C.A.R.I</h1>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px', letterSpacing: '0.1em' }}>ENTERPRISE AI CONTROL</p>
-            </div>
+        {/* Brand */}
+        <div style={{ 
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+          marginBottom: '28px', paddingBottom: '20px', 
+          borderBottom: '1px solid var(--border)'
+        }}>
+          <div>
+            <h1 style={{ letterSpacing: '-0.04em', fontSize: '22px' }}>S.C.A.R.I</h1>
+            <p style={{ 
+              fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.18em', 
+              fontWeight: 700, color: 'var(--muted)', marginTop: '3px' 
+            }}>
+              Cooling Intelligence
+            </p>
           </div>
           <button 
-            onClick={toggleTheme} 
-            className="btn-outline"
-            style={{ padding: '0.5rem', border: 'none', background: 'transparent' }}
-            title="Toggle Theme"
+            className="btn btn-ghost" 
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
           >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </div>
 
-        {/* Training Panel */}
-        <section className="card animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          <div className="card-header">
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.1rem' }}>
-              <Settings size={18} /> New Training
-            </h2>
+        {/* Training Config */}
+        <section style={{ marginBottom: '28px' }}>
+          <div className="card-title">
+            <Cpu size={11} />
+            Training Config
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              <div>
-                 <label className="text-label">Model Name</label>
-                 <input 
-                   className="input-field"
-                   value={trainingName}
-                   onChange={e => setTrainingName(e.target.value)}
-                   placeholder="e.g. scari_v3_optimized"
-                 />
-              </div>
-
-              <div>
-                <label className="text-label">Target Timesteps</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.2)', padding: '0.4rem', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-                   <button 
-                     className="btn-outline" 
-                     style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px' }}
-                     onClick={() => setTrainingSteps(Math.max(1000, trainingSteps - 1000))}
-                   >
-                     <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
-                   </button>
-                   <input 
-                     type="number" 
-                     className="input-field"
-                     style={{ textAlign: 'center', border: 'none', background: 'transparent', boxShadow: 'none', padding: '0', fontSize: '1rem', fontWeight: 700 }}
-                     value={trainingSteps}
-                     onChange={(e) => setTrainingSteps(parseInt(e.target.value))}
-                     placeholder="25000"
-                   />
-                   <button 
-                     className="btn-outline" 
-                     style={{ width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px' }}
-                     onClick={() => setTrainingSteps(trainingSteps + 1000)}
-                   >
-                     <ChevronRight size={16} />
-                   </button>
-                </div>
-                <p style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.5rem', fontStyle: 'italic', textAlign: 'center' }}>
-                  <Info size={10} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                  Higher steps = better intelligence, more time.
-                </p>
-              </div>
-            </div>
+          <div>
+            <label>Run Identifier</label>
+            <input 
+              value={trainingName}
+              onChange={e => setTrainingName(e.target.value)}
+              placeholder="run_01"
+            />
+            <label>Timesteps</label>
+            <input 
+              type="number" 
+              value={trainingSteps}
+              onChange={(e) => setTrainingSteps(parseInt(e.target.value))}
+            />
             <button 
-              className="btn-primary" 
+              className="btn btn-primary" 
+              style={{ width: '100%' }}
               onClick={handleTrain} 
               disabled={isTraining}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}
             >
-              {isTraining ? <Loader2 size={18} className="spin" /> : <Play size={18} />}
-              {isTraining ? 'System training...' : 'Execute Training'}
+              {isTraining ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+              {isTraining ? 'Training…' : 'Start Training'}
             </button>
           </div>
         </section>
 
-        {/* Models & Evaluation Panel */}
-        <section className="card animate-fade-in" style={{ animationDelay: '0.2s', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div className="card-header">
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.1rem' }}>
-              <ShieldCheck size={18} /> Model Repository
-            </h2>
-            <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
-               <button
-                  onClick={handleRequestDeleteAll}
-                  style={{ 
-                    background: 'var(--danger)', 
-                    border: 'none', 
-                    borderRadius: '6px', 
-                    padding: '0.4rem 0.6rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.3rem',
-                    fontSize: '0.7rem',
-                    color: 'white',
-                    fontWeight: 600
-                  }}
-                  title="Delete All Models" 
-               >
-                  <Trash2 size={12} />
-                  Delete All
-               </button>
-               <RefreshCw size={14} onClick={fetchModels} style={{ cursor: 'pointer', color: 'var(--text-secondary)' }} />
+        {/* Training progress (inline) */}
+        {isTraining && (
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+              <span className="text-label">Progress</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>
+                {trainingProgress}%
+              </span>
             </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ 
+                width: `${trainingProgress}%`, 
+                background: 'var(--accent)' 
+              }} />
+            </div>
+            <p style={{ 
+              fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--muted)', 
+              marginTop: '6px', lineHeight: 1.5, maxHeight: '40px', overflow: 'hidden'
+            }}>
+              {lastLog || '> Initialising…'}
+            </p>
+          </div>
+        )}
+
+        {/* Model Registry */}
+        <section style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Activity size={11} />
+              Registry
+            </span>
+            <button className="btn btn-ghost" onClick={fetchModels} style={{ padding: '3px' }}>
+              <RefreshCw size={11} />
+            </button>
+          </div>
+
+          {/* Evaluation controls */}
+          <div style={{ marginBottom: '14px' }}>
+            <label>Eval Steps</label>
+            <input 
+              type="number" 
+              value={evalSteps}
+              onChange={(e) => setEvalSteps(parseInt(e.target.value))}
+              style={{ marginBottom: '8px' }}
+            />
+            <button 
+              className="btn btn-primary" 
+              style={{ width: '100%' }}
+              onClick={handleEvaluate}
+              disabled={!selectedModel || isEvaluating}
+            >
+              {isEvaluating ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+              {isEvaluating ? 'Evaluating…' : 'Run Evaluation'}
+            </button>
           </div>
           
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.5rem' }}>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
             {models.length === 0 && (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center', paddingTop: '1rem' }}>No models detected</p>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>No models found</p>
             )}
             {models.map(m => (
               <div 
-                key={m} 
-                className="group"
+                key={m}
+                className={`group ${selectedModel === m ? 'selected' : ''}`}
                 onClick={() => setSelectedModel(m)}
-                style={{ 
-                  padding: '1rem', 
-                  borderRadius: '12px', 
-                  background: selectedModel === m ? 'linear-gradient(90deg, rgba(0, 243, 255, 0.1), transparent)' : 'transparent',
-                  border: `1px solid ${selectedModel === m ? 'var(--accent-primary)' : 'transparent'}`,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  transition: 'all 0.2s',
-                  position: 'relative'
-                }}
               >
-                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: selectedModel === m ? 'var(--accent-primary)' : 'var(--text-muted)' }} />
-                    <span style={{ fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', color: selectedModel === m ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{m}</span>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                   <Edit2 
-                      size={14} 
-                      className="edit-icon"
-                      style={{ opacity: 0.5, cursor: 'pointer', color: 'var(--text-secondary)' }}
-                      onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
-                      title="Rename"
-                   />
-                   <Trash2 
-                      size={14}
-                      className="delete-icon"
-                      style={{ opacity: 0.5, cursor: 'pointer', color: 'var(--danger)' }}
-                      onClick={(e) => handleRequestDelete(m, e)}
-                      title="Delete"
-                   />
+                <span style={{
+                  fontSize: '12px',
+                  fontWeight: selectedModel === m ? 600 : 400,
+                  color: selectedModel === m ? 'var(--text)' : 'var(--text-secondary)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                }}>{m}</span>
+                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
+                    style={{ padding: '3px' }}
+                  >
+                    <Edit2 size={11} />
+                  </button>
+                  <button 
+                    className="btn btn-ghost btn-sm"
+                    onClick={(e) => handleRequestDelete(m, e)}
+                    style={{ padding: '3px', color: 'var(--danger)' }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
                 </div>
               </div>
             ))}
           </div>
 
-          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--glass-border)' }}>
-            <label className="text-label">Eval Duration (Steps)</label>
-            <input 
-              type="number" 
-              className="input-field"
-              style={{ marginBottom: '1rem', padding: '0.5rem' }}
-              value={evalSteps}
-              onChange={(e) => setEvalSteps(parseInt(e.target.value))}
-            />
-            <button 
-              className="btn-outline" 
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}
-              onClick={handleEvaluate}
-              disabled={isEvaluating || !selectedModel}
-            >
-              {isEvaluating ? <Loader2 size={18} className="spin" /> : <Activity size={18} />}
-              {isEvaluating ? 'Evaluating...' : 'Run Analysis'}
-            </button>
-          </div>
+          {models.length > 0 && (
+            <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+              <button 
+                className="btn btn-outline btn-sm" 
+                style={{ width: '100%', borderStyle: 'dashed' }} 
+                onClick={handleRequestDeleteAll}
+              >
+                <Trash2 size={11} />
+                Clear Registry
+              </button>
+            </div>
+          )}
         </section>
       </aside>
 
-      {/* Main Content */}
+      {/* ═══════════════════════════════════════════════════════
+          MAIN CONTENT
+          ═══════════════════════════════════════════════════ */}
       <main className="main-content">
-        {/* Header with Navigation */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '2rem', marginBottom: '2rem' }}>
-          <div style={{ flex: 1 }}>
-            <h2 className="title-gradient" style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '0.5rem' }}>
-              {mainTab === 'analytics' ? '🎯 Mission Control' : '🌍 Sustainability Hub'}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-               <Activity size={16} color="var(--accent-secondary)" style={{ flexShrink: 0 }} />
-               {mainTab === 'analytics' ? 'AI-Powered Thermal Management & Neural Policy Intelligence' : 'Datacenter Sustainability & ROI Analytics'}
+        {/* Header + Tab Switcher */}
+        <header style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-end', 
+          paddingBottom: '20px', 
+          marginBottom: '32px',
+          borderBottom: '1px solid var(--border)' 
+        }}>
+          <div>
+            <h1 style={{ fontSize: '26px', letterSpacing: '-0.04em', marginBottom: '3px' }}>
+              {mainTab === 'analytics' ? 'Telemetry' : 'Sustainability'}
+            </h1>
+            <p style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              {mainTab === 'analytics' ? 'Model evaluation & performance' : 'Resource efficiency & ROI analysis'}
             </p>
           </div>
           
-          {/* Tab Navigation */}
-          <div style={{ 
-            display: 'flex', 
-            gap: '0.5rem', 
-            background: 'var(--glass-bg-thin)', 
-            padding: '0.6rem', 
-            borderRadius: '14px', 
-            border: '1px solid var(--glass-border)',
-            backdropFilter: 'blur(10px)',
-            flexShrink: 0
-          }}>
+          <div className="tab-bar" style={{ marginBottom: 0 }}>
             <button
+              className={`tab-btn ${mainTab === 'analytics' ? 'active' : ''}`}
               onClick={() => setMainTab('analytics')}
-              style={{
-                padding: '0.65rem 1.3rem',
-                background: mainTab === 'analytics' ? 'var(--gradient-main)' : 'transparent',
-                color: mainTab === 'analytics' ? '#000' : 'var(--text-secondary)',
-                border: mainTab === 'analytics' ? 'none' : '1px solid transparent',
-                borderRadius: '10px',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: mainTab === 'analytics' ? 700 : 600,
-                letterSpacing: '0.03em',
-                transition: 'all 0.3s ease',
-                boxShadow: mainTab === 'analytics' ? '0 4px 15px var(--accent-glow)' : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem'
-              }}
             >
-              <BarChart3 size={16} />
-              <span>Analytics</span>
+              <BarChart3 size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+              Analytics
             </button>
-            
             <button
+              className={`tab-btn ${mainTab === 'calculator' ? 'active' : ''}`}
               onClick={() => setMainTab('calculator')}
-              style={{
-                padding: '0.65rem 1.3rem',
-                background: mainTab === 'calculator' ? 'var(--gradient-success)' : 'transparent',
-                color: mainTab === 'calculator' ? '#000' : 'var(--text-secondary)',
-                border: mainTab === 'calculator' ? 'none' : '1px solid transparent',
-                borderRadius: '10px',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: mainTab === 'calculator' ? 700 : 600,
-                letterSpacing: '0.03em',
-                transition: 'all 0.3s ease',
-                boxShadow: mainTab === 'calculator' ? '0 4px 15px rgba(0, 255, 136, 0.4)' : 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem'
-              }}
             >
-              <Leaf size={16} />
-              <span>Calculator</span>
+              <Leaf size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+              Calculator
             </button>
           </div>
         </header>
 
+        {/* ── ANALYTICS TAB ─────────────────────────────────── */}
         {mainTab === 'analytics' && (
           <>
-        {(isTraining || isEvaluating) && (
-          <div className="card animate-fade-in" style={{ borderColor: 'var(--accent-primary)', background: 'rgba(168, 218, 220, 0.03)', overflow: 'visible' }}>
-            <h3 style={{ marginBottom: '1rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <Terminal size={16} /> Real-time Telemetry {isEvaluating && '(Evaluation)'}
-            </h3>
-            <div style={{ padding: '1rem', background: '#05070a', borderRadius: '8px', border: '1px solid #1a2230' }}>
-               {isTraining && (
-                 <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
-                       <span style={{ color: 'var(--accent-primary)' }}>Training Progress</span>
-                       <span style={{ fontWeight: 700 }}>{trainingProgress}%</span>
-                    </div>
-                    <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                       <div style={{ width: `${trainingProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))', transition: 'width 0.5s ease-out' }} />
-                    </div>
-                 </div>
-               )}
-               <div style={{ 
-                 fontFamily: 'monospace', 
-                 fontSize: '0.8rem', 
-                 color: '#4ade80',
-                 maxHeight: '150px',
-                 overflowY: 'auto',
-                 whiteSpace: 'pre-wrap',
-                 wordBreak: 'break-word'
-               }}>
-                 {isEvaluating ? (evalLog || '> Starting evaluation sequence...') : (lastLog || '> Initializing compute kernels...')}
-               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Metrics Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem' }}>
-          {(() => {
-            const energySavings = results ? (results.metrics.baseline.total_power_consumption - results.metrics.scari.total_power_consumption) / results.metrics.baseline.total_power_consumption : 0;
-            const metricsData = [
-              { 
-                label: 'Energy Savings', 
-                value: results ? `${(energySavings * 100).toFixed(1)}%` : '0.0%',
-                icon: Activity, 
-                color: 'var(--success)', 
-                delay: '0.3s',
-                className: energySavings > 0.1 ? "pulse" : ""
-              },
-              { label: 'Efficiency Score (PUE)', value: results?.metrics?.scari?.average_pue.toFixed(3) || '1.111', icon: Zap, color: 'var(--accent-primary)', delay: '0.4s', subtitle: 'Lower is better' },
-              { 
-                label: 'Average Temperature', 
-                value: `${results?.metrics?.scari?.average_temperature.toFixed(1) || '0.0'}°C`, 
-                icon: Thermometer, 
-                color: results ? (results.metrics.scari.average_temperature < 50 ? 'var(--success)' : results.metrics.scari.average_temperature < 60 ? 'var(--warning)' : 'var(--danger)') : 'var(--warning)', 
-                delay: '0.5s',
-                subtitle: 'Target: < 60°C'
-              },
-              { 
-                label: 'Safety Status', 
-                value: results ? (results.metrics.scari.max_temperature < 63 ? 'OPTIMAL' : results.metrics.scari.max_temperature < 75 ? 'MODERATE' : 'CRITICAL') : 'STANDBY', 
-                icon: ShieldCheck, 
-                color: results ? (results.metrics.scari.max_temperature < 63 ? 'var(--success)' : results.metrics.scari.max_temperature < 75 ? 'var(--warning)' : 'var(--danger)') : 'var(--text-secondary)',
-                delay: '0.6s',
-                subtitle: results ? `${results.metrics.scari.safety_violations} overtemp events` : null
-              }
-            ];
-            return metricsData.map((metric, i) => (
-              <div key={i} className={`card animate-fade-in ${metric.className}`} style={{ animationDelay: metric.delay }}>
-                <p className="text-label">{metric.label}</p>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
-                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: metric.color === 'var(--text-secondary)' ? 'var(--text-primary)' : metric.color }}>
-                    {metric.value}
+            {/* Active Process Log */}
+            {(isTraining || isEvaluating) && (
+              <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <Loader2 size={14} className="spin" color="var(--accent)" />
+                  <span className="card-title" style={{ margin: 0 }}>
+                    {isTraining ? 'Training in Progress' : 'Evaluation Running'}
                   </span>
-                  <metric.icon size={18} color={metric.color} style={{ opacity: 0.8 }} />
                 </div>
-                {metric.subtitle && (
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                    {metric.subtitle}
+                {isTraining && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                      <span className="text-label">Progress</span>
+                      <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{trainingProgress}%</span>
+                    </div>
+                    <div className="progress-track" style={{ height: '6px' }}>
+                      <div className="progress-fill" style={{ width: `${trainingProgress}%`, background: 'var(--accent)' }} />
+                    </div>
+                  </div>
+                )}
+                <div style={{ 
+                  fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)',
+                  maxHeight: '80px', overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.5,
+                  padding: '10px 12px', background: 'var(--surface-raised)', borderRadius: 'var(--radius)',
+                  border: '1px solid var(--border)'
+                }}>
+                  {isEvaluating ? (evalLog || '> Evaluation active…') : (lastLog || '> Booting compute kernels…')}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!results && !isEvaluating && (
+              <div className="card" style={{ 
+                display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                gap: '20px', padding: '80px 40px', textAlign: 'center' 
+              }}>
+                <div style={{ 
+                  width: '56px', height: '56px', borderRadius: '50%', 
+                  background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <BarChart3 size={24} color="var(--muted)" />
+                </div>
+                <div>
+                  <h2 style={{ marginBottom: '6px' }}>No Data Available</h2>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px', maxWidth: '360px', margin: '0 auto' }}>
+                    Select a model from the registry and run an evaluation to generate performance analytics.
                   </p>
+                </div>
+                {selectedModel && (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={handleEvaluate}
+                    disabled={isEvaluating}
+                    style={{ marginTop: '4px' }}
+                  >
+                    <Play size={13} />
+                    Evaluate {selectedModel}
+                  </button>
                 )}
               </div>
-            ));
-          })()}
-        </div>
+            )}
 
-        {/* Main Analytics Area */}
-        {/* Charts Section - Full Width Vertical Scroll */}
-        <div style={{ marginTop: '2rem' }}>
-           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '1.2rem', fontWeight: 700 }}>
-                 <BarChart3 size={22} color="var(--accent-primary)" /> Performance Analysis
-              </h3>
-              {results?.images?.length > 0 && (
-                <button 
-                  className="btn-outline" 
-                  style={{ padding: '0.5rem 1rem', fontSize: '0.75rem' }}
-                  onClick={() => {
-                    results.images.forEach((img, i) => {
-                      const link = document.createElement('a');
-                      link.href = `${API_BASE}${img}`;
-                      link.download = `scari_chart_${i+1}.png`;
-                      link.click();
-                    });
-                  }}
-                >
-                  Download All Charts
-                </button>
-              )}
-           </div>
-
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
-             {isEvaluating ? (
-               <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem' }}>
-                  <div className="spinner" style={{ width: '40px', height: '40px', marginBottom: '1.5rem' }}></div>
-                  <h4 style={{ color: 'var(--accent-primary)' }}>Simulating Environment...</h4>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>Processing {Number(evalSteps).toLocaleString()} steps of neural policy...</p>
-               </div>
-             ) : results?.images?.length > 0 ? (
-               results.images.map((img, i) => (
-                  <div key={i} className="card" style={{ background: '#05070a', padding: '0.5rem', border: '1px solid #1a2230', position: 'relative', overflow: 'hidden', maxWidth: '850px', margin: '0 auto', width: '100%' }}>
-                     <img 
-                        src={`${API_BASE}${img}?t=${Date.now()}`} 
-                        alt="Performance Chart" 
-                        style={{ width: '100%', height: 'auto', display: 'block', borderRadius: '4px' }} 
-                     />
-                     <button 
-                       className="btn-primary"
-                       style={{ position: 'absolute', top: '15px', right: '15px', padding: '0.6rem', opacity: 0.9, zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}
-                       onClick={() => {
-                         const link = document.createElement('a');
-                         link.href = `${API_BASE}${img}`;
-                         link.download = `scari_chart_${i+1}.png`;
-                         link.click();
-                       }}
-                       title="Download This Chart"
-                     >
-                        <Download size={20} color="#000" />
-                     </button>
-                  </div>
-               ))
-             ) : (
-                <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '5rem', opacity: 0.5 }}>
-                   <BarChart3 size={64} style={{ marginBottom: '1.5rem', color: 'var(--text-secondary)' }} />
-                   <h4 style={{ fontSize: '1.2rem' }}>Ready for Analysis</h4>
-                   <p style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>Select a model and click 'Run Analysis' to generate reports</p>
-                </div>
-             )}
-           </div>
-        </div>
-
-        {/* Sustainability & ROI Section */}
-        {results?.sustainability && (
-          <section className="animate-fade-in" style={{ animationDelay: '0.7s' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
-              <Leaf size={24} color="var(--success)" />
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Sustainability & ROI Calculator</h2>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem' }}>
-              <div className="card" style={{ borderLeft: '4px solid var(--success)' }}>
-                  <p className="text-label">Est. Financial Savings (Yearly)</p>
-                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--success)' }}>
-                    €{results.sustainability.projected_yearly_savings_eur.toLocaleString()}
-                  </span>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                    Based on €{results.sustainability.market_data.price_eur_kwh}/kWh industrial rate
-                  </p>
-              </div>
+            {/* Metrics Grid */}
+            {results && (() => {
+              const b = results.metrics.baseline;
+              const s = results.metrics.scari;
+              const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
               
-              <div className="card" style={{ borderLeft: '4px solid var(--accent-secondary)' }}>
-                  <p className="text-label">Carbon Offset (Yearly)</p>
-                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-secondary)' }}>
-                    {results.sustainability.projected_yearly_co2_kg.toLocaleString()} kg CO₂
-                  </span>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                    Reduction in infrastructure footprint
-                  </p>
-              </div>
+              const metrics = [
+                { 
+                  label: 'Power Reduction', 
+                  value: `${(energySavings * 100).toFixed(1)}%`, 
+                  icon: TrendingDown, 
+                  color: 'var(--success)',
+                  desc: 'vs baseline PID controller'
+                },
+                { 
+                  label: 'Average PUE', 
+                  value: s.average_pue.toFixed(3), 
+                  icon: Zap, 
+                  color: 'var(--accent)',
+                  desc: `Baseline: ${b.average_pue.toFixed(3)}`
+                },
+                { 
+                  label: 'Avg Temperature', 
+                  value: `${s.average_temperature.toFixed(1)}°C`, 
+                  icon: ThermometerSun, 
+                  color: s.average_temperature > 55 ? 'var(--danger)' : 'var(--text)',
+                  desc: `Max: ${s.max_temperature.toFixed(1)}°C`
+                },
+                { 
+                  label: 'Safety Violations', 
+                  value: s.safety_violations, 
+                  icon: Shield, 
+                  color: s.safety_violations === 0 ? 'var(--success)' : 'var(--danger)',
+                  desc: s.safety_violations === 0 ? 'Operating within limits' : 'Thermal exceedances'
+                }
+              ];
               
-              <div className="card" style={{ borderLeft: '4px solid #4ade80' }}>
-                  <p className="text-label">Environmental Equivalent</p>
-                  <span style={{ fontSize: '1.8rem', fontWeight: 800, color: '#4ade80' }}>
-                    {results.sustainability.trees_equivalent.toLocaleString()} Trees
-                  </span>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-                    Absorption equivalent of mature forest
-                  </p>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Explainability Section */}
-        {results?.metrics?.decisions && (
-          <section className="animate-fade-in" style={{ animationDelay: '0.8s', marginTop: '2rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.5rem' }}>
-              <Brain size={24} color="var(--accent-primary)" />
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Explainable AI Dashboard</h2>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-              {/* Decision Timeline */}
-              <div className="card" style={{ maxHeight: '600px', display: 'flex', flexDirection: 'column' }}>
-                <div className="card-header">
-                  <h3 style={{ fontSize: '1rem' }}><History size={18} /> Decision History</h3>
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-                  {results.metrics.decisions.map((d, i) => (
-                    <div 
-                      key={i} 
-                      className={`decision-item ${selectedDecision?.step === d.step ? 'active' : ''}`}
-                      onClick={() => setSelectedDecision(d)}
-                      style={{
-                        padding: '1rem',
-                        borderRadius: '12px',
-                        marginBottom: '0.8rem',
-                        cursor: 'pointer',
-                        background: selectedDecision?.step === d.step ? 'rgba(0, 243, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
-                        border: selectedDecision?.step === d.step ? '1px solid var(--accent-primary)' : '1px solid transparent',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 600 }}>Step {d.step}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <span style={{ fontSize: '0.8rem', color: d.avg_temp > 65 ? 'var(--danger)' : 'var(--success)' }}>
-                            {d.avg_temp.toFixed(1)}°C
-                          </span>
-                        </div>
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '32px' }}>
+                  {metrics.map((m, i) => (
+                    <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
+                        <m.icon size={14} color={m.color} />
+                        <span className="text-label">{m.label}</span>
                       </div>
-                      <div style={{ marginTop: '0.5rem', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px' }}>
-                        <div style={{ height: '100%', width: `${d.confidence * 100}%`, background: 'var(--accent-primary)', borderRadius: '2px' }} />
+                      <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
+                        {m.value}
                       </div>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
                     </div>
                   ))}
                 </div>
+              );
+            })()}
+
+            {/* Charts */}
+            {results && (
+              <div>
+                <div className="card-title">Comparative Analysis</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
+                  {results.images.map((img, i) => (
+                    <div key={i} className="card" style={{ padding: '8px', overflow: 'hidden' }}>
+                      <img 
+                        src={`${API_BASE}${img}?t=${Date.now()}`} 
+                        alt={`Performance chart ${i + 1}`}
+                        style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 'var(--radius-sm)' }} 
+                      />
+                    </div>
+                  ))}
+                </div>
+                
+                <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
+                  <button className="btn btn-outline" onClick={() => setResults(null)}>
+                    <RefreshCw size={12} />
+                    New Analysis
+                  </button>
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => {
+                      results.images.forEach((img, i) => {
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE}${img}`;
+                        link.download = `scari_chart_${i + 1}.png`;
+                        link.click();
+                      });
+                    }}
+                  >
+                    <Download size={12} />
+                    Export Charts
+                  </button>
+                </div>
               </div>
+            )}
 
-              {/* Reasoning & Attribution */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                {selectedDecision ? (
-                  <>
-                    <div className="card">
-                      <div className="card-header">
-                        <h3 style={{ fontSize: '1rem' }}><MessageSquare size={18} /> Agent Reasoning</h3>
-                        <div className="badge" style={{ background: 'rgba(0, 243, 255, 0.1)', color: 'var(--accent-primary)' }}>
-                          Confidence: {(selectedDecision.confidence * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                      <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {selectedDecision.reasoning.map((r, i) => (
-                          <div key={i} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                            <div style={{ padding: '0.4rem', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }}>
-                              <ChevronRight size={14} />
-                            </div>
-                            <p style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>{r}</p>
-                          </div>
-                        ))}
-                      </div>
+            {/* Sustainability */}
+            {results?.sustainability && (
+              <section className="animate-fade-in" style={{ marginTop: '40px' }}>
+                <div className="card-title">
+                  <Leaf size={11} />
+                  Environmental Impact
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
+                  <div className="metric-card" style={{ borderLeft: '3px solid var(--success)' }}>
+                    <span className="text-label">Projected Annual Savings</span>
+                    <div className="metric-value" style={{ color: 'var(--success)', fontSize: '22px', marginTop: '6px' }}>
+                      €{results.sustainability.projected_yearly_savings_eur.toLocaleString()}
                     </div>
-
-                    <div className="card">
-                      <div className="card-header">
-                        <h3 style={{ fontSize: '1rem' }}><BarChart size={18} /> Feature Attribution</h3>
-                      </div>
-                      <div style={{ padding: '1.5rem' }}>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-                          Analysis of which inputs most influenced this specific cooling decision.
-                        </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                          {Object.entries(selectedDecision.feature_importance).map(([feature, value], i) => (
-                            <div key={i}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '0.4rem' }}>
-                                <span>{feature}</span>
-                                <span style={{ color: 'var(--accent-primary)' }}>{(value * 100).toFixed(1)}%</span>
-                              </div>
-                              <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                                <div 
-                                  style={{ 
-                                    height: '100%', 
-                                    width: `${value * 100 * 3}%`, // Scaled for visibility
-                                    background: `linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))`,
-                                    borderRadius: '4px'
-                                  }} 
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5 }}>
-                    <p>Select a decision step to view reasoning</p>
+                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                      At €{results.sustainability.market_data.price_eur_kwh}/kWh industrial
+                    </p>
                   </div>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
+                  
+                  <div className="metric-card" style={{ borderLeft: '3px solid var(--accent)' }}>
+                    <span className="text-label">CO₂ Offset (Yearly)</span>
+                    <div className="metric-value" style={{ color: 'var(--accent)', fontSize: '22px', marginTop: '6px' }}>
+                      {results.sustainability.projected_yearly_co2_kg >= 1000
+                        ? `${(results.sustainability.projected_yearly_co2_kg / 1000).toFixed(1)} t`
+                        : `${results.sustainability.projected_yearly_co2_kg.toLocaleString()} kg`}
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                      Infrastructure carbon reduction
+                    </p>
+                  </div>
+                  
+                  <div className="metric-card" style={{ borderLeft: '3px solid var(--text-secondary)' }}>
+                    <span className="text-label">Forest Equivalent</span>
+                    <div className="metric-value" style={{ fontSize: '22px', marginTop: '6px' }}>
+                      {results.sustainability.trees_equivalent.toLocaleString()}
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                      Mature trees (absorption equiv.)
+                    </p>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Decision Trace */}
+            {results?.metrics?.decisions && (
+              <section className="animate-fade-in" style={{ marginTop: '40px' }}>
+                <div className="card-title">
+                  <Activity size={11} />
+                  Decision Trace
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '16px' }}>
+                  {/* Timeline */}
+                  <div className="card" style={{ maxHeight: '560px', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+                    <div className="card-header" style={{ padding: '14px 16px' }}>
+                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <History size={13} /> Steps
+                      </h3>
+                      <span className="badge">{results.metrics.decisions.length}</span>
+                    </div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+                      {results.metrics.decisions.map((d, i) => (
+                        <div 
+                          key={i} 
+                          className={`decision-item ${selectedDecision?.step === d.step ? 'active' : ''}`}
+                          onClick={() => setSelectedDecision(d)}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600, fontSize: '12px' }}>Step {d.step}</span>
+                            <span style={{
+                              fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                              color: d.avg_temp > 60 ? 'var(--danger)' : d.avg_temp > 50 ? 'var(--warning)' : 'var(--success)'
+                            }}>
+                              {d.avg_temp.toFixed(1)}°C
+                            </span>
+                          </div>
+                          <div style={{ marginTop: '6px' }} className="progress-track">
+                            <div className="progress-fill" style={{ 
+                              width: `${d.confidence * 100}%`, 
+                              background: selectedDecision?.step === d.step ? 'var(--accent)' : 'var(--border-strong)'
+                            }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Detail panel */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {selectedDecision ? (
+                      <>
+                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                          <div className="card-header" style={{ padding: '14px 16px' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <ChevronRight size={13} /> Control Reasoning
+                            </h3>
+                            <span className="badge badge-accent">
+                              {(selectedDecision.confidence * 100).toFixed(0)}% conf.
+                            </span>
+                          </div>
+                          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {selectedDecision.reasoning.map((r, i) => (
+                              <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                <ChevronRight size={12} color="var(--muted)" style={{ marginTop: '3px', flexShrink: 0 }} />
+                                <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>{r}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                          <div className="card-header" style={{ padding: '14px 16px' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <BarChart size={13} /> Input Attribution
+                            </h3>
+                          </div>
+                          <div style={{ padding: '16px' }}>
+                            <p className="text-label" style={{ marginBottom: '14px' }}>
+                              Influence on cooling decision
+                            </p>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                              {Object.entries(selectedDecision.feature_importance).map(([feature, value], i) => (
+                                <div key={i}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '5px' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>{feature}</span>
+                                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{(value * 100).toFixed(1)}%</span>
+                                  </div>
+                                  <div className="progress-track" style={{ height: '5px' }}>
+                                    <div className="progress-fill" style={{ 
+                                      width: `${Math.min(100, value * 100 * 3)}%`,
+                                      background: 'var(--accent)',
+                                      transition: 'width 0.4s ease'
+                                    }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
+                        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Select a step to view control reasoning</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
           </>
         )}
 
+        {/* ── CALCULATOR TAB ────────────────────────────────── */}
         {mainTab === 'calculator' && (
           <DataCenterCalculator onToast={addToast} evalResults={results} />
         )}
@@ -924,17 +873,8 @@ const App = () => {
 
       {/* Toasts */}
       <div className="toast-container">
-        {toasts.map(t => (
-          <Toast key={t.id} {...t} />
-        ))}
+        {toasts.map(t => <Toast key={t.id} {...t} />)}
       </div>
-
-      <style dangerouslySetInnerHTML={{ __html: `
-        .spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .success { border-left: 4px solid var(--success) !important; }
-        .error { border-left: 4px solid var(--danger) !important; }
-      `}} />
     </div>
   );
 };
