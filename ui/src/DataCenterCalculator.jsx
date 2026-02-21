@@ -60,7 +60,13 @@ const REGION_DATA = {
   EU:   { price: 0.18, currency: '€', label: 'Europe',    intensity: 0.255 },
   ES:   { price: 0.14, currency: '€', label: 'Spain',     intensity: 0.184 },
   DE:   { price: 0.22, currency: '€', label: 'Germany',   intensity: 0.380 },
+  UK:   { price: 0.24, currency: '£', label: 'UK',        intensity: 0.160 },
+  FR:   { price: 0.12, currency: '€', label: 'France',    intensity: 0.055 },
+  NO:   { price: 0.09, currency: '€', label: 'Norway',    intensity: 0.025 },
   US:   { price: 0.08, currency: '$', label: 'USA',       intensity: 0.386 },
+  BR:   { price: 0.11, currency: '$', label: 'Brazil',    intensity: 0.085 },
+  CA:   { price: 0.07, currency: '$', label: 'Canada',    intensity: 0.120 },
+  IN:   { price: 0.07, currency: '$', label: 'India',     intensity: 0.700 },
   ASIA: { price: 0.07, currency: '$', label: 'Asia-Pac',  intensity: 0.500 },
 };
 

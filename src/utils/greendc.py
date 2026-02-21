@@ -56,7 +56,13 @@ class GreenDCCalculator:
         "EU":   {"price": 0.18,  "currency": "EUR", "intensity": 0.255},  # EU27 avg (EEA 2024)
         "ES":   {"price": 0.14,  "currency": "EUR", "intensity": 0.184},  # Spain REE 2024
         "DE":   {"price": 0.22,  "currency": "EUR", "intensity": 0.380},  # Germany BAFA 2024
+        "UK":   {"price": 0.24,  "currency": "GBP", "intensity": 0.160},  # UK (DESNZ 2024)
+        "FR":   {"price": 0.12,  "currency": "EUR", "intensity": 0.055},  # France (Nuclear-heavy)
+        "NO":   {"price": 0.09,  "currency": "EUR", "intensity": 0.025},  # Norway (Hydro-heavy)
         "US":   {"price": 0.08,  "currency": "USD", "intensity": 0.386},  # USA EIA 2024
+        "BR":   {"price": 0.11,  "currency": "USD", "intensity": 0.085},  # Brazil (High Renewables)
+        "CA":   {"price": 0.07,  "currency": "USD", "intensity": 0.120},  # Canada (Hydro-heavy)
+        "IN":   {"price": 0.07,  "currency": "USD", "intensity": 0.700},  # India (Coal-heavy)
         "ASIA": {"price": 0.07,  "currency": "USD", "intensity": 0.500},  # Asia-Pac avg
     }
 
