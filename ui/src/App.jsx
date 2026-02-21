@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Activity, Play, BarChart3, 
   RefreshCw, AlertCircle, CheckCircle2, Loader2,
   History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
   ChevronRight, Download, Cpu, Zap, ThermometerSun,
-  Shield, TrendingDown, TreePine
+  Shield, TrendingDown, TreePine, Minus, Plus, Image
 } from 'lucide-react';
 import DataCenterCalculator from './DataCenterCalculator';
 import { API_BASE } from './config';
@@ -29,6 +29,103 @@ const fmt = (n, decimals = 0) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
   return n.toFixed(decimals);
+};
+
+const fmtSteps = (n) => {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return n.toString();
+};
+
+/* ── STEPPER INPUT ────────────────────────────────────────────── */
+const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
+  const intervalRef = useRef(null);
+  const timeoutRef = useRef(null);
+
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+
+  const startHold = (delta) => {
+    onChange(clamp(value + delta));
+    timeoutRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        onChange(prev => clamp((typeof prev === 'function' ? prev : prev) + delta));
+      }, 80);
+    }, 400);
+  };
+
+  const stopHold = () => {
+    clearTimeout(timeoutRef.current);
+    clearInterval(intervalRef.current);
+  };
+
+  // For the hold-to-repeat, we need a ref to current value
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
+
+  const startHoldSafe = (delta) => {
+    onChange(clamp(value + delta));
+    timeoutRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        valueRef.current = clamp(valueRef.current + delta);
+        onChange(valueRef.current);
+      }, 80);
+    }, 400);
+  };
+
+  return (
+    <div>
+      <div className="stepper">
+        <button 
+          className="stepper-btn"
+          onMouseDown={() => startHoldSafe(-step)}
+          onMouseUp={stopHold}
+          onMouseLeave={stopHold}
+          tabIndex={-1}
+        >
+          <Minus size={14} />
+        </button>
+        <div className="stepper-value">{fmtSteps(value)}</div>
+        <button 
+          className="stepper-btn"
+          onMouseDown={() => startHoldSafe(step)}
+          onMouseUp={stopHold}
+          onMouseLeave={stopHold}
+          tabIndex={-1}
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+      {presets.length > 0 && (
+        <div className="preset-grid">
+          {presets.map(p => (
+            <button
+              key={p}
+              className={`preset-pill ${value === p ? 'active' : ''}`}
+              onClick={() => onChange(p)}
+            >
+              {fmtSteps(p)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* Chart name mapping for human-readable titles */
+const CHART_LABELS = {
+  'temperature_comparison': { title: 'Temperature Over Time', desc: 'Server temperatures: baseline PID vs SCARI agent' },
+  'power_comparison':       { title: 'Power Consumption', desc: 'Total electrical power usage comparison' },
+  'cooling_efficiency':     { title: 'Cooling Efficiency', desc: 'PUE and cooling energy overhead per step' },
+  'performance_dashboard':  { title: 'Performance Dashboard', desc: 'Summary of all key metrics in one view' },
+  'reward_analysis':        { title: 'Agent Reward', desc: 'Cumulative reward signal during evaluation' },
+};
+
+const getChartLabel = (imgPath) => {
+  for (const [key, label] of Object.entries(CHART_LABELS)) {
+    if (imgPath.toLowerCase().includes(key)) return label;
+  }
+  return { title: `Analysis Chart`, desc: 'Evaluation metric visualisation' };
 };
 
 /* ── TOAST ──────────────────────────────────────────────────── */
@@ -69,11 +166,11 @@ const App = () => {
   );
   const [mainTab, setMainTab] = useState('analytics');
 
-  const isTrainingRef = React.useRef(isTraining);
-  const isEvaluatingRef = React.useRef(isEvaluating);
+  const isTrainingRef = useRef(isTraining);
+  const isEvaluatingRef = useRef(isEvaluating);
   
-  React.useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
-  React.useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
+  useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
+  useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -100,121 +197,97 @@ const App = () => {
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
   };
 
-  /* ── API CALLS ─────────────────────────────────────────────── */
+  /* ── DATA FETCHING ──────────────────────────────────────────── */
   const fetchModels = async () => {
     try {
       const res = await fetchWithRetry(`${API_BASE}/models`);
       if (!res) return;
       const data = await res.json();
       setModels(data.models || []);
-      if (data.models?.length > 0 && !selectedModel) setSelectedModel(data.models[0]);
-    } catch (e) {
-      console.error('Error fetching models', e);
-      addToast('Failed to connect to backend', 'error');
-    }
+    } catch { /* silent */ }
   };
 
   const fetchStatus = async () => {
     try {
-      const res = await fetchWithRetry(`${API_BASE}/status`);
-      if (!res) return;
-      const data = await res.json();
+      const [statusRes, evalRes] = await Promise.all([
+        fetchWithRetry(`${API_BASE}/status`),
+        fetchWithRetry(`${API_BASE}/evaluation-status`)
+      ]);
       
-      const wasTraining = isTrainingRef.current;
-      const nowTraining = data.is_training;
-      
-      if (nowTraining !== wasTraining) setIsTraining(nowTraining);
-      
-      if (nowTraining) {
-        setLastLog(data.last_log);
-        setTrainingProgress(data.progress || 0);
-      } else if (wasTraining && !nowTraining) {
-        setTrainingProgress(100);
-        addToast('Training completed. Refreshing registry…', 'success');
-        setTimeout(() => {
+      if (statusRes) {
+        const sd = await statusRes.json();
+        if (sd.is_training) {
+          setIsTraining(true);
+          setTrainingProgress(sd.progress || 0);
+          setLastLog(sd.last_log || '');
+        } else if (isTrainingRef.current) {
+          setIsTraining(false);
           setTrainingProgress(0);
-          setLastLog('');
           fetchModels();
-        }, 1500);
+        }
       }
       
-      const evalRes = await fetch(`${API_BASE}/evaluation-status`);
-      const evalData = await evalRes.json();
-      
-      const wasEvaluating = isEvaluatingRef.current;
-      const nowEvaluating = evalData.is_evaluating;
-      
-      if (nowEvaluating !== wasEvaluating) setIsEvaluating(nowEvaluating);
-      if (nowEvaluating) setEvalLog(evalData.last_log);
-    } catch (e) { 
-      console.debug('Status poll failed', e);
-    }
+      if (evalRes) {
+        const ed = await evalRes.json();
+        if (ed.is_evaluating) {
+          setIsEvaluating(true);
+          setEvalLog(ed.last_log || '');
+        } else if (isEvaluatingRef.current) {
+          setIsEvaluating(false);
+          setEvalLog('');
+          fetchResults();
+        }
+      }
+    } catch { /* silent */ }
   };
 
+  const fetchResults = async () => {
+    try {
+      const res = await fetchWithRetry(`${API_BASE}/evaluation-results`);
+      if (!res) return;
+      const data = await res.json();
+      if (data.metrics) setResults(data);
+    } catch { /* silent */ }
+  };
+
+  /* ── ACTIONS ────────────────────────────────────────────────── */
   const handleTrain = async () => {
     try {
       const res = await fetch(`${API_BASE}/train`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           timesteps: trainingSteps,
-          name: trainingName.trim() || 'scari_unnamed'
+          name: trainingName,
+          config: 'configs/default.yaml'
         })
       });
       if (!res.ok) throw new Error(await res.text());
-      addToast('Training sequence initiated', 'success');
       setIsTraining(true);
+      setTrainingProgress(0);
+      addToast('Training started');
     } catch (e) {
-      addToast(e.message || 'Failed to start training', 'error');
+      addToast(e.message || 'Training failed', 'error');
     }
   };
 
   const handleEvaluate = async () => {
-    if (!selectedModel) {
-      addToast('Please select a model first', 'error');
-      return;
-    }
-    setIsEvaluating(true);
-    setResults(null);
-    addToast(`Evaluating ${selectedModel}…`, 'success');
-    
+    if (!selectedModel) return;
     try {
-      const startRes = await fetch(`${API_BASE}/evaluate?model_name=${selectedModel}&steps=${evalSteps}`, { method: 'POST' });
-      if (!startRes.ok) throw new Error(await startRes.text());
-      
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`${API_BASE}/evaluation-status`);
-          const statusData = await statusRes.json();
-          
-          if (statusData.error) {
-            clearInterval(pollInterval);
-            setIsEvaluating(false);
-            addToast(`Evaluation failed: ${statusData.error}`, 'error');
-          } else if (!statusData.is_evaluating && statusData.has_result) {
-            clearInterval(pollInterval);
-            setIsEvaluating(false);
-            
-            const resultsRes = await fetch(`${API_BASE}/results`);
-            const resultsData = await resultsRes.json();
-            setResults(resultsData);
-            if (resultsData.metrics?.decisions?.length > 0) {
-              setSelectedDecision(resultsData.metrics.decisions[0]);
-            }
-            addToast('Evaluation complete', 'success');
-          }
-        } catch (err) {
-          console.error('Polling error:', err);
-        }
-      }, 2000);
-
+      const res = await fetch(`${API_BASE}/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel, steps: evalSteps })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setIsEvaluating(true);
+      setEvalLog('');
+      addToast(`Evaluating ${selectedModel}`);
     } catch (e) {
-      addToast('Evaluation failed to start.', 'error');
-      console.error(e);
-      setIsEvaluating(false);
+      addToast(e.message || 'Evaluation failed', 'error');
     }
   };
 
@@ -276,6 +349,32 @@ const App = () => {
     }
     setIsDeleting(false);
     setDeleteTarget('');
+  };
+
+  /* ── CHART DOWNLOAD — proper blob-based method ───────────── */
+  const downloadChart = async (imgUrl, filename) => {
+    try {
+      const res = await fetch(`${API_BASE}${imgUrl}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`Downloaded ${filename}`);
+    } catch {
+      addToast('Download failed', 'error');
+    }
+  };
+
+  const downloadAllCharts = async () => {
+    if (!results?.images) return;
+    for (let i = 0; i < results.images.length; i++) {
+      await downloadChart(results.images[i], `scari_chart_${i + 1}.png`);
+    }
   };
 
   /* ── MODAL OVERLAY ────────────────────────────────────────── */
@@ -351,13 +450,9 @@ const App = () => {
           ═══════════════════════════════════════════════════ */}
       <aside className="sidebar">
         {/* Brand */}
-        <div style={{ 
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-          marginBottom: '28px', paddingBottom: '20px', 
-          borderBottom: '1px solid var(--border)'
-        }}>
+        <div className="sidebar-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ letterSpacing: '-0.04em', fontSize: '22px' }}>S.C.A.R.I</h1>
+            <h1 style={{ letterSpacing: '-0.05em', fontSize: '24px' }}>S.C.A.R.I</h1>
             <p style={{ 
               fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.18em', 
               fontWeight: 700, color: 'var(--muted)', marginTop: '3px' 
@@ -375,10 +470,10 @@ const App = () => {
         </div>
 
         {/* Training Config */}
-        <section style={{ marginBottom: '28px' }}>
+        <section className="sidebar-section">
           <div className="card-title">
             <Cpu size={11} />
-            Training Config
+            Training
           </div>
           <div>
             <label>Run Identifier</label>
@@ -388,14 +483,17 @@ const App = () => {
               placeholder="run_01"
             />
             <label>Timesteps</label>
-            <input 
-              type="number" 
+            <StepperInput
               value={trainingSteps}
-              onChange={(e) => setTrainingSteps(parseInt(e.target.value))}
+              onChange={setTrainingSteps}
+              step={50000}
+              min={10000}
+              max={5000000}
+              presets={[100000, 300000, 600000, 1000000]}
             />
             <button 
               className="btn btn-primary" 
-              style={{ width: '100%' }}
+              style={{ width: '100%', marginTop: '4px' }}
               onClick={handleTrain} 
               disabled={isTraining}
             >
@@ -405,7 +503,7 @@ const App = () => {
           </div>
         </section>
 
-        {/* Training progress (inline) */}
+        {/* Training progress */}
         {isTraining && (
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
@@ -444,11 +542,13 @@ const App = () => {
           {/* Evaluation controls */}
           <div style={{ marginBottom: '14px' }}>
             <label>Eval Steps</label>
-            <input 
-              type="number" 
+            <StepperInput
               value={evalSteps}
-              onChange={(e) => setEvalSteps(parseInt(e.target.value))}
-              style={{ marginBottom: '8px' }}
+              onChange={setEvalSteps}
+              step={1000}
+              min={500}
+              max={50000}
+              presets={[1000, 5000, 10000, 25000]}
             />
             <button 
               className="btn btn-primary" 
@@ -657,7 +757,7 @@ const App = () => {
               ];
               
               return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '32px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '32px' }}>
                   {metrics.map((m, i) => (
                     <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
@@ -674,41 +774,52 @@ const App = () => {
               );
             })()}
 
-            {/* Charts */}
+            {/* Charts — with titles and proper download */}
             {results && (
               <div>
-                <div className="card-title">Comparative Analysis</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
-                  {results.images.map((img, i) => (
-                    <div key={i} className="card" style={{ padding: '8px', overflow: 'hidden' }}>
-                      <img 
-                        src={`${API_BASE}${img}?t=${Date.now()}`} 
-                        alt={`Performance chart ${i + 1}`}
-                        style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 'var(--radius-sm)' }} 
-                      />
-                    </div>
-                  ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div className="card-title" style={{ margin: 0 }}>Comparative Analysis</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-outline btn-sm" onClick={() => setResults(null)}>
+                      <RefreshCw size={12} />
+                      New Analysis
+                    </button>
+                    <button className="btn btn-primary btn-sm" onClick={downloadAllCharts}>
+                      <Download size={12} />
+                      Export All
+                    </button>
+                  </div>
                 </div>
-                
-                <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
-                  <button className="btn btn-outline" onClick={() => setResults(null)}>
-                    <RefreshCw size={12} />
-                    New Analysis
-                  </button>
-                  <button 
-                    className="btn btn-primary"
-                    onClick={() => {
-                      results.images.forEach((img, i) => {
-                        const link = document.createElement('a');
-                        link.href = `${API_BASE}${img}`;
-                        link.download = `scari_chart_${i + 1}.png`;
-                        link.click();
-                      });
-                    }}
-                  >
-                    <Download size={12} />
-                    Export Charts
-                  </button>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
+                  {results.images.map((img, i) => {
+                    const label = getChartLabel(img);
+                    return (
+                      <div key={i} className="card-chart animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
+                        <div className="chart-header">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div className="chart-title">{label.title}</div>
+                              <div className="chart-desc">{label.desc}</div>
+                            </div>
+                            <button 
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => downloadChart(img, `scari_${label.title.toLowerCase().replace(/\s/g, '_')}.png`)}
+                              title="Download chart"
+                              style={{ marginLeft: '8px', flexShrink: 0 }}
+                            >
+                              <Download size={13} />
+                            </button>
+                          </div>
+                        </div>
+                        <img 
+                          src={`${API_BASE}${img}?t=${Date.now()}`} 
+                          alt={label.title}
+                          className="chart-img"
+                          draggable={false}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -720,7 +831,7 @@ const App = () => {
                   <Leaf size={11} />
                   Environmental Impact
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
                   <div className="metric-card" style={{ borderLeft: '3px solid var(--success)' }}>
                     <span className="text-label">Projected Annual Savings</span>
                     <div className="metric-value" style={{ color: 'var(--success)', fontSize: '22px', marginTop: '6px' }}>

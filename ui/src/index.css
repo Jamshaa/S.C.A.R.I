@@ -1,8 +1,8 @@
 /* ================================================================
-   S.C.A.R.I — Design System v3
-   Professional · Minimal · Engineering-grade
+   S.C.A.R.I — Design System v4
+   Bespoke · Centred · Engineering-grade
    ================================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -51,11 +51,11 @@
   --shadow-lg:       0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
 
   /* Typography */
-  --font:            'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono:       'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-  --sidebar-width:   272px;
+  --font:            'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:       'Geist Mono', 'Fira Code', 'Consolas', monospace;
+  --sidebar-width:   280px;
 
-  /* Aliases for backwards compat */
+  /* Aliases */
   --text-primary:    var(--text);
   --text-muted:      var(--muted);
   --accent-primary:  var(--accent);
@@ -68,13 +68,13 @@
    DARK MODE
    ────────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg:              #0c0a09;
-  --surface:         #1c1917;
-  --surface-raised:  #292524;
-  --surface-hover:   #292524;
-  --surface-active:  #44403c;
+  --bg:              #141210;
+  --surface:         #1c1a17;
+  --surface-raised:  #252320;
+  --surface-hover:   #2a2826;
+  --surface-active:  #3a3836;
 
-  --border:          #292524;
+  --border:          #2a2826;
   --border-strong:   #fafaf9;
   --border-hover:    #57534e;
 
@@ -128,9 +128,9 @@ body {
    TYPOGRAPHY
    ────────────────────────────────────────────────────────────── */
 h1 {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   line-height: 1.2;
 }
 h2 {
@@ -155,7 +155,7 @@ h3 {
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 /* ──────────────────────────────────────────────────────────────────
-   LAYOUT
+   LAYOUT — centered content, no wasted right space
    ────────────────────────────────────────────────────────────── */
 .app-container, .layout {
   display: flex;
@@ -183,8 +183,7 @@ h3 {
   margin-left: var(--sidebar-width);
   flex: 1;
   padding: 32px 40px;
-  max-width: 1200px;
-  width: calc(100% - var(--sidebar-width));
+  max-width: 1060px;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -200,6 +199,20 @@ h3 {
 }
 .card:hover {
   border-color: var(--border-hover);
+}
+/* Chart cards should NOT have hover effects — prevents the drag/click bug */
+.card-chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0;
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+.card-chart img {
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .card-title {
@@ -224,16 +237,16 @@ h3 {
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   BUTTONS — professional with satisfying interactions
+   BUTTONS
    ────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 16px;
+  padding: 9px 18px;
   font-family: var(--font);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.01em;
   line-height: 1;
@@ -268,11 +281,13 @@ h3 {
   pointer-events: none;
 }
 
-/* Primary */
+/* Primary — strong CTA */
 .btn-primary {
   background: var(--border-strong);
   color: var(--text-inverse);
   border-color: var(--border-strong);
+  padding: 10px 20px;
+  font-size: 13px;
 }
 .btn-primary:hover {
   opacity: 0.88;
@@ -328,6 +343,92 @@ h3 {
 }
 
 /* ──────────────────────────────────────────────────────────────────
+   STEPPER — Custom −/value/+ input for numbers
+   ────────────────────────────────────────────────────────────── */
+.stepper {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  height: 40px;
+  margin-bottom: 8px;
+}
+.stepper-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  background: var(--surface-raised);
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  font-family: var(--font);
+  transition: all 0.1s ease;
+  user-select: none;
+}
+.stepper-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.stepper-btn:active {
+  background: var(--surface-active);
+}
+.stepper-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  letter-spacing: -0.02em;
+  cursor: default;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   PRESET PILLS — Quick-select values
+   ────────────────────────────────────────────────────────────── */
+.preset-grid {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.preset-pill {
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.preset-pill:hover {
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+  background: var(--surface-hover);
+}
+.preset-pill.active {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 700;
+}
+
+/* ──────────────────────────────────────────────────────────────────
    FORM CONTROLS
    ────────────────────────────────────────────────────────────── */
 label {
@@ -373,14 +474,14 @@ input::placeholder, textarea::placeholder {
   font-weight: 400;
 }
 
-/* Number input spinners */
+/* Hide native number spinners — replaced by custom stepper */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
-  opacity: 0.3;
+  -webkit-appearance: none;
+  margin: 0;
 }
-input[type="number"]:hover::-webkit-inner-spin-button,
-input[type="number"]:hover::-webkit-outer-spin-button {
-  opacity: 0.7;
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 /* Select dropdown arrow */
@@ -436,7 +537,7 @@ select {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 18px;
+  padding: 18px 20px;
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .metric-card:hover {
@@ -551,6 +652,31 @@ select {
 }
 
 /* ──────────────────────────────────────────────────────────────────
+   CHART CONTAINER — descriptive header + image
+   ────────────────────────────────────────────────────────────── */
+.chart-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.chart-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+.chart-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.chart-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  padding: 8px;
+}
+
+/* ──────────────────────────────────────────────────────────────────
    TOASTS
    ────────────────────────────────────────────────────────────── */
 .toast-container {
@@ -602,6 +728,19 @@ select {
   height: 1px;
   background: var(--border);
   margin: 16px 0;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   SECTION DIVIDERS (sidebar)
+   ────────────────────────────────────────────────────────────── */
+.sidebar-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 /* ──────────────────────────────────────────────────────────────────

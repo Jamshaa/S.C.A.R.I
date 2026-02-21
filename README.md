@@ -1,99 +1,120 @@
-# S.C.A.R.I - Smart Cooling & AI-driven Resource Infrastructure
+# S.C.A.R.I — Smart Cooling & AI-driven Resource Infrastructure
 
-![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
-![Framework](https://img.shields.io/badge/Framework-Gymnasium-blue)
-![Algorithm](https://img.shields.io/badge/Algorithm-PPO-orange)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![PPO](https://img.shields.io/badge/Algorithm-PPO-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-**S.C.A.R.I** es un framework de Reinforcement Learning para la **gestión térmica autónoma** de datacenters.
+**S.C.A.R.I** is a Reinforcement Learning framework for **autonomous thermal management** of data-centre infrastructure. It uses a PPO agent with a custom attention-based policy to optimise cooling in real time, reducing energy consumption while maintaining safe operating temperatures.
 
 ---
 
-## 🔧 Primera Instalación
+## Features
+
+| Area                          | Detail                                                     |
+| ----------------------------- | ---------------------------------------------------------- |
+| **Thermal RL Agent**          | PPO with attention policy, thermally-aware state space     |
+| **Physics Simulation**        | Multi-rack server environment with realistic heat transfer |
+| **Telemetry Dashboard**       | Live training progress, evaluation metrics, decision trace |
+| **Sustainability Calculator** | CO₂ offset, annual savings (EUR), PUE analysis by region   |
+| **Explainability**            | Per-step reasoning, feature attribution, confidence scores |
+
+---
+
+## Quick Start
 
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/tu-usuario/S.C.A.R.I.git
+# 1. Clone and enter
+git clone https://github.com/Jamshaa/S.C.A.R.I.git
 cd S.C.A.R.I
 
-# 2. Crear entorno virtual Python
+# 2. Python environment
 python -m venv venv
-
-# 3. Activar entorno virtual
-.\venv\Scripts\activate       # Windows
-source venv/bin/activate      # Linux/Mac
-
-# 4. Instalar dependencias Python
+.\venv\Scripts\activate        # Windows
+source venv/bin/activate       # Linux / macOS
 pip install -r requirements.txt
 
-# 5. Instalar dependencias Frontend
-cd ui
-npm install
-cd ..
+# 3. Frontend
+cd ui && npm install && cd ..
 ```
 
----
+### Run
 
-## 🚀 Cómo Ejecutar
-
-### 1. Backend (API)
+**Backend** (Terminal 1):
 
 ```bash
-# Activar entorno virtual
-.\venv\Scripts\activate
-
-# Iniciar servidor
 python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-**URL**: http://127.0.0.1:8000
-
-### 2. Frontend (Dashboard)
-
-En otra terminal:
+**Frontend** (Terminal 2):
 
 ```bash
-cd ui
-npm run dev
+cd ui && npm run dev
 ```
 
-**URL**: http://localhost:5173
+Open **http://localhost:5173**
 
 ---
 
-## 📁 Estructura
+## Project Structure
 
 ```
 S.C.A.R.I/
-├── configs/           # Configuración de entrenamiento
-├── data/models/       # Modelos entrenados (.zip)
+├── configs/                # Training profiles (default, optimised)
+├── data/models/            # Trained model checkpoints (.zip)
 ├── src/
-│   ├── api/           # Backend FastAPI
-│   ├── envs/          # Simulación térmica
-│   └── utils/         # Visualización y XAI
-├── ui/                # Frontend React/Vite
-└── outputs/eval/      # Resultados de evaluación
+│   ├── api/                # FastAPI backend & endpoints
+│   │   ├── app.py          # Main API server
+│   │   └── sample_decisions.py
+│   ├── envs/               # Gymnasium environment (thermal sim)
+│   ├── models/             # Server, rack, cooling, policy networks
+│   ├── utils/              # Config, visualisation, explainability, GreenDC calculator
+│   ├── train.py            # CLI training entry-point
+│   └── evaluate.py         # CLI evaluation entry-point
+├── ui/                     # React + Vite dashboard
+│   └── src/
+│       ├── App.jsx         # Main application UI
+│       ├── DataCenterCalculator.jsx
+│       ├── index.css       # Design system
+│       └── config.js       # API base URL
+├── tests/                  # pytest test suite
+├── Dockerfile              # Container build
+├── docker-compose.yml      # Full-stack orchestration
+└── Makefile                # Common tasks
 ```
-
-## 🎯 Características
-
-- **Control Térmico Autónomo**: IA que se adapta a cambios de carga
-- **Analítica de Sostenibilidad**: Seguimiento de CO2 y ahorro energético
-- **Dashboard de IA Explicable**: Razonamiento de las decisiones
-- **Interfaz Moderna**: Glassmorphism con modos claro/oscuro
-
-## 📈 Rendimiento
-
-PUE promedio: **1.011** | Ahorro energético: **~11%**
 
 ---
 
-## 🐳 Docker (Opcional)
+## API Reference
+
+Once the backend is running, interactive docs are at:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+Key endpoints:
+
+| Method   | Path                  | Description            |
+| -------- | --------------------- | ---------------------- |
+| `GET`    | `/models`             | List trained models    |
+| `POST`   | `/train`              | Start training run     |
+| `POST`   | `/evaluate`           | Evaluate a model       |
+| `GET`    | `/evaluation-results` | Latest evaluation data |
+| `DELETE` | `/models/{name}`      | Delete single model    |
+| `DELETE` | `/models`             | Clear all models       |
+
+---
+
+## Docker
 
 ```bash
 docker-compose up -d
 ```
 
+Backend → `http://localhost:8000` · Frontend → `http://localhost:5173`
+
 ---
 
-**Documentación API**: http://localhost:8000/docs
+## License
+
+MIT — see [LICENSE](LICENSE)

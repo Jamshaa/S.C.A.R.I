@@ -126,8 +126,6 @@ def run_training():
             tb_log_name='PPO_Production'
         )
         print("\n✅ Training complete!")
-        # Save final model heavily distinct from emergency saves
-        print("\n✅ Training complete!")
         # Save final model
         model.save(model_dir / args.output_name)
         
