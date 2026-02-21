@@ -208,7 +208,11 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
         const roiRes = await fetch(`${API_BASE}/calculator/roi-analysis`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ num_servers: formData.num_servers, ...roiData })
+          body: JSON.stringify({ 
+            num_servers: formData.num_servers, 
+            investment_eur: roiData.investment_eur,
+            annual_savings_eur: estimatedSavings.costSaved 
+          })
         });
         if (roiRes.ok) final.roi = (await roiRes.json()).data;
       }
@@ -647,12 +651,16 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   />
                 </div>
                 <div>
-                  <label>Expected Annual Savings (€)</label>
+                  <label>Expected Annual Savings (Auto-calculated)</label>
                   <input
-                    type="number"
-                    value={roiData.annual_savings_eur}
-                    onChange={e => setRoiData(prev => ({ ...prev, annual_savings_eur: parseFloat(e.target.value) || 0 }))}
+                    type="text"
+                    value={`${estimatedSavings.regionInfo.currency}${estimatedSavings.costSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                    disabled={true}
+                    style={{ background: 'var(--surface-raised)', color: 'var(--success)', fontWeight: 'bold' }}
                   />
+                  <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>
+                    Derivado directamente del ahorro en refrigeración.
+                  </p>
                 </div>
               </div>
             </div>

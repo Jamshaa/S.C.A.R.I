@@ -138,6 +138,7 @@ class RenameRequest(BaseModel):
 class EvaluationRequest(BaseModel):
     model: str
     steps: int = 5000
+    name: Optional[str] = None
 
 class TrainingStatus:
     is_training = False
@@ -525,22 +526,120 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
 @app.post("/evaluate")
 async def run_evaluation(params: EvaluationRequest, background_tasks: BackgroundTasks):
     """Run evaluation for a specific model in background."""
-    safe_name = sanitize_model_name(params.model)
-    model_path = MODELS_DIR / safe_name
+    safe_model_name = sanitize_model_name(params.model)
+    model_path = MODELS_DIR / safe_model_name
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     
+    # Custom run name logic
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if params.name:
+        # Sanitize name: alphanumeric and underscores only
+        clean_name = "".join(c for c in params.name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+        run_name = f"{clean_name}_{timestamp}"
+    else:
+        run_name = f"eval_{timestamp}"
+    
+    run_dir = OUTPUTS_DIR / run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     if not evaluation_lock.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="An evaluation process is already running. Please wait.")
     
-    def run_eval_with_lock(path, s, out):
+    def run_eval_with_lock(path, s, out_dir):
         try:
-            run_eval_task(path, s, out)
+            run_eval_task(path, s, out_dir)
         finally:
             evaluation_lock.release()
 
-    background_tasks.add_task(run_eval_with_lock, model_path, params.steps, OUTPUTS_DIR)
-    return {"message": "Evaluation started"}
+    background_tasks.add_task(run_eval_with_lock, model_path, params.steps, run_dir)
+    return {"message": "Evaluation started", "run_name": run_name}
+
+@app.get("/history")
+async def get_all_history():
+    """List all historical evaluation runs."""
+    history = []
+    for d in OUTPUTS_DIR.iterdir():
+        if d.is_dir() and (d / "metrics.json").exists():
+            try:
+                with open(d / "metrics.json", "r") as f:
+                    metrics = json.load(f)
+                
+                # Try to get timestamp from directory name or file stat
+                try:
+                    ts_str = d.name.split("_")[-1] if "_" in d.name else ""
+                    # If it's a timestamp format we used: YYYYMMDD_HHMMSS
+                    # we don't strictly need to parse it for the UI if we just return the name
+                except:
+                    pass
+
+                history.append({
+                    "id": d.name,
+                    "timestamp": datetime.fromtimestamp(d.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    "steps": metrics.get("scari", {}).get("total_steps", 0),
+                    "pue": metrics.get("scari", {}).get("pue", 0),
+                    "savings": metrics.get("sustainability", {}).get("energy_savings_percent", 0) or metrics.get("sustainability", {}).get("pue_improvement_percent", 0)
+                })
+            except Exception as e:
+                logger.warning(f"Failed to read historical run {d.name}: {e}")
+    
+    # Sort by timestamp decending
+    history.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"history": history}
+
+@app.get("/history/{run_id}")
+async def get_history_detail(run_id: str):
+    """Get detailed results for a specific historical run."""
+    # Prevent path traversal
+    safe_id = os.path.basename(run_id)
+    run_dir = OUTPUTS_DIR / safe_id
+    metrics_path = run_dir / "metrics.json"
+
+    if not run_dir.exists() or not metrics_path.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    try:
+        with open(metrics_path, "r") as f:
+            metrics = json.load(f)
+        
+        images = []
+        for f in sorted(run_dir.glob("*.png")):
+            if f.stat().st_size > 0:
+                images.append(f"/outputs/eval/{run_id}/{f.name}")
+        
+        # Calculate impact if not already in metrics (or just return what's there)
+        green_impact = metrics.get("sustainability")
+        if not green_impact:
+             green_impact = greendc.calculate_impact(
+                baseline_power_w=metrics['baseline']['total_power_consumption'],
+                scari_power_w=metrics['scari']['total_power_consumption'],
+                simulation_steps=metrics['scari'].get('total_steps', 5000)
+            )
+
+        return {
+            "metrics": metrics,
+            "images": images,
+            "sustainability": green_impact,
+            "id": run_id
+        }
+    except Exception as e:
+        logger.error(f"Error reading history detail for {run_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to parse results")
+
+@app.delete("/history/{run_id}")
+async def delete_history_run(run_id: str):
+    """Delete a historical run."""
+    safe_id = os.path.basename(run_id)
+    run_dir = OUTPUTS_DIR / safe_id
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    try:
+        shutil.rmtree(run_dir)
+        return {"message": f"Deleted {run_id}"}
+    except Exception as e:
+        logger.error(f"Error deleting history run {run_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete")
 
 @app.get("/evaluation-status")
 async def get_evaluation_status():

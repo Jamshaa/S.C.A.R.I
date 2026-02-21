@@ -187,8 +187,11 @@ const App = () => {
   
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalSteps, setEvalSteps] = useState(5000);
+  const [evalName, setEvalName] = useState('eval_optimization');
   const [evalLog, setEvalLog] = useState('');
   const [results, setResults] = useState(null);
+  const [evalHistory, setEvalHistory] = useState([]);
+  const [loadingEvalHistory, setLoadingEvalHistory] = useState(false);
   
   const [selectedDecision, setSelectedDecision] = useState(null);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -216,6 +219,7 @@ const App = () => {
 
   useEffect(() => {
     fetchModels();
+    fetchEvalHistory();
     let isMounted = true;
     let errorCount = 0;
     
@@ -256,13 +260,46 @@ const App = () => {
   };
 
   /* ── DATA FETCHING ──────────────────────────────────────────── */
-  const fetchModels = async () => {
+  const fetchModels = () => {
+    fetch(`${API_BASE}/models`)
+      .then(res => res.json())
+      .then(data => setModels(data.models || []))
+      .catch(() => addToast('Failed to fetch models', 'error'));
+  };
+
+  const fetchEvalHistory = () => {
+    setLoadingEvalHistory(true);
+    fetch(`${API_BASE}/history`)
+      .then(res => res.json())
+      .then(data => setEvalHistory(data.history || []))
+      .catch(() => addToast('Failed to fetch evaluation history', 'error'))
+      .finally(() => setLoadingEvalHistory(false));
+  };
+
+  const loadEvalResult = async (runId) => {
     try {
-      const res = await fetchWithRetry(`${API_BASE}/models`);
-      if (!res) return;
+      const res = await fetch(`${API_BASE}/history/${runId}`);
+      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setModels(data.models || []);
-    } catch { /* silent */ }
+      setResults(data);
+      addToast(`Loaded evaluation: ${runId}`, 'success');
+      setMainTab('analytics');
+    } catch (e) {
+      addToast(`Failed to load: ${e.message}`, 'error');
+    }
+  };
+
+  const deleteEvalResult = async (runId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Delete evaluation ${runId}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/history/${runId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      setEvalHistory(prev => prev.filter(h => h.id !== runId));
+      addToast('Evaluation deleted', 'success');
+    } catch (e) {
+      addToast('Delete failed', 'error');
+    }
   };
 
   const fetchStatus = async () => {
@@ -294,6 +331,7 @@ const App = () => {
           setIsEvaluating(false);
           setEvalLog('');
           fetchResults();
+          fetchEvalHistory(); // Refresh history after evaluation
         }
       }
     } catch { /* silent */ }
@@ -330,12 +368,21 @@ const App = () => {
   };
 
   const handleEvaluate = async () => {
-    if (!selectedModel) return;
+    if (!selectedModel) {
+      addToast('Select a model first', 'error');
+      return;
+    }
+    setIsEvaluating(true);
+    setEvalLog('Requesting evaluation…');
     try {
       const res = await fetch(`${API_BASE}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedModel, steps: evalSteps })
+        body: JSON.stringify({ 
+          model: selectedModel, 
+          steps: evalSteps,
+          name: evalName 
+        })
       });
       if (!res.ok) throw new Error(await res.text());
       setIsEvaluating(true);
@@ -595,7 +642,14 @@ const App = () => {
           </div>
 
           {/* Evaluation controls */}
-          <div style={{ marginBottom: '14px' }}>
+          <div style={{ marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+            <label>Run Name</label>
+            <input 
+              value={evalName}
+              onChange={e => setEvalName(e.target.value)}
+              placeholder="eval_optimization"
+              style={{ marginBottom: '8px' }}
+            />
             <label>Eval Steps</label>
             <StepperInput
               value={evalSteps}
@@ -625,12 +679,14 @@ const App = () => {
                 key={m}
                 className={`group ${selectedModel === m ? 'selected' : ''}`}
                 onClick={() => setSelectedModel(m)}
+                style={{ padding: '8px 10px' }}
               >
                 <span style={{
                   fontSize: '12px',
                   fontWeight: selectedModel === m ? 600 : 400,
                   color: selectedModel === m ? 'var(--text)' : 'var(--text-secondary)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  flex: 1
                 }}>{m}</span>
                 <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                   <button 
@@ -648,6 +704,48 @@ const App = () => {
                     <Trash2 size={11} />
                   </button>
                 </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Evaluation Registry */}
+        <section style={{ height: '240px', display: 'flex', flexDirection: 'column', marginTop: '24px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <History size={11} />
+              Eval History
+            </span>
+            <button className="btn btn-ghost" onClick={fetchEvalHistory} style={{ padding: '3px' }}>
+              <RefreshCw size={11} className={loadingEvalHistory ? 'spin' : ''} />
+            </button>
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {evalHistory.length === 0 && !loadingEvalHistory && (
+              <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>No history found</p>
+            )}
+            {evalHistory.map(h => (
+              <div 
+                key={h.id}
+                className="group"
+                onClick={() => loadEvalResult(h.id)}
+                style={{ padding: '8px 10px', marginBottom: '4px' }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {h.id.split('_').slice(0, -2).join('_') || 'Evaluation'}
+                  </p>
+                  <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
+                    {h.timestamp} · {h.savings?.toFixed(1)}% save
+                  </p>
+                </div>
+                <button 
+                  className="btn btn-ghost btn-sm"
+                  onClick={(e) => deleteEvalResult(h.id, e)}
+                  style={{ padding: '3px', color: 'var(--danger)', marginLeft: '8px' }}
+                >
+                  <Trash2 size={11} />
+                </button>
               </div>
             ))}
           </div>
