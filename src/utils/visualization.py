@@ -173,17 +173,20 @@ class PerformanceVisualizer:
                label='S.C.A.R.I', color=self.colors['scari'],
                linewidth=2, alpha=0.8)
         
-        # Add safe operating zones
-        ax.axhspan(0, 70, alpha=0.1, color=self.colors['safe'], label='Optimal Zone')
-        ax.axhspan(70, 85, alpha=0.1, color=self.colors['warning'], label='Caution Zone')
-        ax.axhspan(85, 100, alpha=0.1, color=self.colors['danger'], label='Danger Zone')
-        
+        # Safe operating zones (aligned with config safety limits)
+        ax.axhspan(20, 55, alpha=0.08, color=self.colors['safe'], label='Optimal (< 55°C)')
+        ax.axhspan(55, 65, alpha=0.08, color=self.colors['warning'], label='Caution (55-65°C)')
+        ax.axhspan(65, 100, alpha=0.08, color=self.colors['danger'], label='Danger (> 65°C)')
+        ax.axhline(60, color=self.colors['danger'], linestyle='--', linewidth=1, alpha=0.5, label='Safety Limit')
+
         ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
         ax.set_ylabel('Server Temperature (°C)', fontweight='bold')
         ax.set_title('Thermal Safety: Keeping Servers Cool', fontsize=14, fontweight='bold')
         ax.legend(loc='upper right', framealpha=0.9, fontsize=8)
         ax.grid(True, alpha=0.3)
-        ax.set_ylim(40, 95)
+        # Auto-scale Y to data range with padding
+        all_temps = list(baseline_data['temps']) + list(model_data['temps'])
+        ax.set_ylim(max(20, min(all_temps) - 5), max(all_temps) + 10)
         
         # Statistics annotations
         baseline_avg_temp = np.mean(baseline_data['temps'])

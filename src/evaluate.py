@@ -1,4 +1,4 @@
-# src/cli/evaluate.py
+# src/evaluate.py
 #!/usr/bin/env python3
 """
 S.C.A.R.I. - Evaluation Module
@@ -90,6 +90,11 @@ class EvaluationRunner:
         else:
             self.num_servers = 10
         self.baseline = BaselineController(target_temp=25.0)
+        # Stored for later use by visualizer
+        self.baseline_it_powers: List[float] = []
+        self.baseline_cooling_powers: List[float] = []
+        self.model_it_powers: List[float] = []
+        self.model_cooling_powers: List[float] = []
     
     def evaluate_baseline(self, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print("\n📊 Evaluating Baseline (Legacy PID) Controller...")
@@ -132,6 +137,8 @@ class EvaluationRunner:
                 violations += 1
             
         metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+        self.baseline_it_powers = it_powers
+        self.baseline_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics
 
     def evaluate_model(self, model: PPO, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict]]:
@@ -168,20 +175,33 @@ class EvaluationRunner:
                 violations += 1
         
         metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+        self.model_it_powers = it_powers
+        self.model_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics, decisions_log
     
     def _compute_metrics(self, rewards, temps, powers, it_powers, cooling_powers, healths, actions, violations) -> EvaluationMetrics:
         powers_array = np.array(powers)
         it_array = np.array(it_powers)
-        
-        thermal_stability = 1.0 - (np.std(temps) / (np.max(temps) - np.min(temps) + 1e-6))
-        
+        temps_array = np.array(temps)
+
+        thermal_stability = 1.0 - (np.std(temps_array) / (np.ptp(temps_array) + 1e-6))
+
+        # Convergence time: first step where the rolling average reward stabilises
+        window = min(100, len(rewards) // 5)
+        if window > 0:
+            rolling = np.convolve(rewards, np.ones(window)/window, mode='valid')
+            diffs = np.abs(np.diff(rolling))
+            converged_mask = diffs < 0.01 * (np.max(np.abs(rolling)) + 1e-6)
+            conv_time = int(np.argmax(converged_mask)) if converged_mask.any() else len(rewards)
+        else:
+            conv_time = len(rewards)
+
         return EvaluationMetrics(
             total_power_consumption=float(np.sum(powers_array)),
-            average_temperature=float(np.mean(temps)),
-            max_temperature=float(np.max(temps)),
-            min_temperature=float(np.min(temps)),
-            std_temperature=float(np.std(temps)),
+            average_temperature=float(np.mean(temps_array)),
+            max_temperature=float(np.max(temps_array)),
+            min_temperature=float(np.min(temps_array)),
+            std_temperature=float(np.std(temps_array)),
             safety_violations=int(violations),
             avg_fan_speed=float(np.mean(actions)),
             power_efficiency=float(np.clip(1.0 - (np.mean(powers_array)/5000), 0, 1)),
@@ -189,7 +209,7 @@ class EvaluationRunner:
             episode_reward=float(np.mean(rewards)),
             average_pue=float(np.mean(powers_array / (it_array + 1e-6))),
             average_health=float(np.mean(healths)),
-            convergence_time=0, 
+            convergence_time=conv_time,
         )
 
 def run_evaluation():
@@ -241,29 +261,45 @@ def run_evaluation():
             'decisions': m_decisions
         }, f, indent=4)
     
-    # Generate visualization
+    # Generate visualizations
     print("\n📈 Generating Performance Visualizations...")
     viz = PerformanceVisualizer(str(output_dir))
-    
+
     baseline_history = {
         'temps': b_temps,
         'powers': b_powers,
+        'it_powers': runner.baseline_it_powers,
+        'cooling_powers': runner.baseline_cooling_powers,
     }
     model_history = {
         'temps': m_temps,
         'powers': m_powers,
+        'it_powers': runner.model_it_powers,
+        'cooling_powers': runner.model_cooling_powers,
     }
-    
+
     viz.create_comprehensive_dashboard(
         b_metrics.to_dict(),
         m_metrics.to_dict(),
         baseline_history,
         model_history
     )
-    
-    print(f"\n✅ Evaluation complete. Results saved to {output_dir}")
-    print(f"   - Energy Savings: {((b_metrics.total_power_consumption - m_metrics.total_power_consumption)/b_metrics.total_power_consumption)*100:.1f}%")
-    print(f"   - SCARI PUE: {m_metrics.average_pue:.3f}")
+
+    # Generate power breakdown chart (IT vs Cooling split)
+    viz.create_power_breakdown_chart(baseline_history, model_history)
+
+    # Summary
+    savings_pct = ((b_metrics.total_power_consumption - m_metrics.total_power_consumption)
+                   / b_metrics.total_power_consumption) * 100
+    print(f"\n{'='*60}")
+    print(f"  ✅ Evaluation complete — results in {output_dir}")
+    print(f"{'='*60}")
+    print(f"  Energy Savings : {savings_pct:+.1f}%")
+    print(f"  SCARI PUE      : {m_metrics.average_pue:.3f}")
+    print(f"  Max Temperature: {m_metrics.max_temperature:.1f}°C")
+    print(f"  Safety Violations: {m_metrics.safety_violations}")
+    print(f"  Convergence Time : step {m_metrics.convergence_time}")
+    print(f"{'='*60}")
 
 if __name__ == '__main__':
     run_evaluation()

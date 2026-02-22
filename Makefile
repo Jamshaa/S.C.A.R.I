@@ -1,17 +1,16 @@
 .PHONY: help install deploy docker-build docker-up docker-down \
-        docker-logs docker-clean local-dev test lint format clean
+        docker-logs docker-clean test lint format clean
 
 # Default target
 help:
 	@echo "╔════════════════════════════════════════════════════════════════╗"
-	@echo "║              🚀 S.C.A.R.I Make Deployment Guide 🚀            ║"
+	@echo "║              🚀 S.C.A.R.I Make Commands 🚀                   ║"
 	@echo "╚════════════════════════════════════════════════════════════════╝"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Quick Deploy:"
 	@echo "  make deploy        - Deploy with Docker (recommended)"
-	@echo "  make local-dev     - Setup for local development"
 	@echo ""
 	@echo "Docker Targets:"
 	@echo "  make docker-build  - Build Docker images"
@@ -21,6 +20,7 @@ help:
 	@echo "  make docker-clean  - Remove containers & images"
 	@echo ""
 	@echo "Development:"
+	@echo "  make install       - Install all dependencies"
 	@echo "  make test          - Run test suite"
 	@echo "  make lint          - Lint code"
 	@echo "  make format        - Format code"
@@ -66,10 +66,6 @@ docker-logs:
 	@echo "📋 Backend logs (Ctrl+C to exit):"
 	docker-compose logs -f backend
 
-## Search for specific logs
-docker-logs-%:
-	docker-compose logs -f $*
-
 ## Remove containers and images
 docker-clean:
 	@echo "🧹 Cleaning Docker..."
@@ -81,17 +77,8 @@ docker-restart: docker-down docker-up
 	@echo "✅ Services restarted"
 
 # ============================================================================
-# LOCAL DEVELOPMENT
+# DEPENDENCY INSTALLATION
 # ============================================================================
-
-## Setup local development environment
-local-dev:
-	@echo "🔧 Setting up local development..."
-	bash deploy.sh local
-	@echo ""
-	@echo "✅ Local setup complete!"
-	@echo "   Terminal 1: source venv/bin/activate && uvicorn src.api.app:app --reload"
-	@echo "   Terminal 2: cd ui && npm run dev"
 
 ## Create virtual environment
 venv:
@@ -196,18 +183,6 @@ check-deps:
 	@docker --version 2>/dev/null || echo "   Docker: NOT INSTALLED"
 	@docker-compose --version 2>/dev/null || echo "   Docker Compose: NOT INSTALLED"
 
-## Get system info
-info:
-	@echo "📋 S.C.A.R.I System Information"
-	@echo "================================"
-	@echo ""
-	@echo "Configuration:"
-	@echo "   Max Temp: " && python -c "import yaml; print(yaml.safe_load(open('configs/optimized.yaml'))['physics']['max_temp'])" || echo "N/A"
-	@echo ""
-	@echo "Services:"
-	@docker-compose ps 2>/dev/null | tail -n +2 || echo "   Not running"
-	@echo ""
-
 # ============================================================================
 # CLEANUP & RESET
 # ============================================================================
@@ -220,11 +195,7 @@ reset: docker-clean clean
 ## Clean temporary files
 clean:
 	@echo "🧹 Cleaning temporary files..."
-	@find . -type f -name "*.pyc" -delete
-	@find . -type d -name "__pycache__" -delete
-	@find . -type d -name ".pytest_cache" -delete
-	@find . -type d -name ".mypy_cache" -delete
-	@rm -rf *.egg-info build dist 2>/dev/null
+	python -c "import pathlib, shutil; [p.unlink() for p in pathlib.Path('.').rglob('*.pyc')]; [shutil.rmtree(p) for p in pathlib.Path('.').rglob('__pycache__')]; [shutil.rmtree(p) for p in pathlib.Path('.').rglob('.pytest_cache')]" 2>/dev/null || true
 	@echo "✅ Cleanup complete"
 
 ## Show environment status
@@ -245,17 +216,6 @@ status:
 	@echo ""
 	@docker-compose ps 2>/dev/null && echo "✅ Docker running" || echo "⚠️  Docker not running"
 	@echo ""
-
-# ============================================================================
-# UTILITY TARGETS
-# ============================================================================
-
-## Open documentation
-docs:
-	@echo "📚 Documentation:"
-	@echo "   - QUICK_REFERENCE.md"
-	@echo "   - DEPLOYMENT_GUIDE.md"
-	@echo "   - SYSTEM_IMPROVEMENTS.md"
 
 ## Show make version
 version:

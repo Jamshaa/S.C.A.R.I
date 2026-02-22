@@ -69,7 +69,7 @@ OUTPUTS_DIR = BASE_DIR / "outputs" / "eval"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Servir archivos estáticos para ver las gráficas (png)
+# Serve static files (evaluation charts and images)
 app.mount("/outputs", StaticFiles(directory=str(BASE_DIR / "outputs")), name="outputs")
 
 def get_python_executable():
@@ -459,29 +459,24 @@ async def delete_historical_result(eval_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
 def run_eval_task(model_path: Path, steps: int, output_dir: Path):
+    """Execute model evaluation as a subprocess, writing results into output_dir."""
     global eval_status
     eval_status.is_evaluating = True
     eval_status.error = ""
     eval_status.result = None
-    
-    # Generate timestamped subdirectory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = output_dir / timestamp
-    run_dir.mkdir(parents=True, exist_ok=True)
-    
-    logger.info(f"Starting evaluation task in {run_dir}")
-    
+
+    logger.info(f"Starting evaluation task in {output_dir}")
+
     venv_python = get_python_executable()
 
     cmd = [
         venv_python, "-m", "src.evaluate",
         "--model", str(model_path),
-        "--output", str(run_dir),
+        "--output", str(output_dir),
         "--steps", str(steps)
     ]
-    
+
     try:
-        # Set UTF-8 encoding for Windows
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
 
@@ -496,26 +491,13 @@ def run_eval_task(model_path: Path, steps: int, output_dir: Path):
         )
         for line in process.stdout:
             eval_status.last_log = line.strip()
-            
+
         process.wait()
         if process.returncode == 0:
-            # Load results
-            metrics_path = run_dir / "metrics.json"
+            metrics_path = output_dir / "metrics.json"
             if metrics_path.exists():
                 with open(metrics_path, "r") as f:
                     eval_status.result = json.load(f)
-                    
-                # OPTIONAL: Create/Update 'latest' symlink or copy for backward comp
-                # copying explicitly to 'latest' folder or root might be easier on Windows than symlinks
-                try:
-                    latest_metrics = output_dir / "metrics.json"
-                    shutil.copy2(metrics_path, latest_metrics)
-                    # Also copy images to root for legacy endpoint if needed, 
-                    # but better to rely on new logic. 
-                    # For now, let's keep get_results working by copying metrics.json to root
-                except Exception as e:
-                    logger.warning(f"Failed to update latest metrics link: {e}")
-
         else:
             eval_status.error = f"Evaluation process exited with code {process.returncode}"
     except Exception as e:
@@ -555,92 +537,6 @@ async def run_evaluation(params: EvaluationRequest, background_tasks: Background
     background_tasks.add_task(run_eval_with_lock, model_path, params.steps, run_dir)
     return {"message": "Evaluation started", "run_name": run_name}
 
-@app.get("/history")
-async def get_all_history():
-    """List all historical evaluation runs."""
-    history = []
-    for d in OUTPUTS_DIR.iterdir():
-        if d.is_dir() and (d / "metrics.json").exists():
-            try:
-                with open(d / "metrics.json", "r") as f:
-                    metrics = json.load(f)
-                
-                # Try to get timestamp from directory name or file stat
-                try:
-                    ts_str = d.name.split("_")[-1] if "_" in d.name else ""
-                    # If it's a timestamp format we used: YYYYMMDD_HHMMSS
-                    # we don't strictly need to parse it for the UI if we just return the name
-                except:
-                    pass
-
-                history.append({
-                    "id": d.name,
-                    "timestamp": datetime.fromtimestamp(d.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    "steps": metrics.get("scari", {}).get("total_steps", 0),
-                    "pue": metrics.get("scari", {}).get("pue", 0),
-                    "savings": metrics.get("sustainability", {}).get("energy_savings_percent", 0) or metrics.get("sustainability", {}).get("pue_improvement_percent", 0)
-                })
-            except Exception as e:
-                logger.warning(f"Failed to read historical run {d.name}: {e}")
-    
-    # Sort by timestamp decending
-    history.sort(key=lambda x: x["timestamp"], reverse=True)
-    return {"history": history}
-
-@app.get("/history/{run_id}")
-async def get_history_detail(run_id: str):
-    """Get detailed results for a specific historical run."""
-    # Prevent path traversal
-    safe_id = os.path.basename(run_id)
-    run_dir = OUTPUTS_DIR / safe_id
-    metrics_path = run_dir / "metrics.json"
-
-    if not run_dir.exists() or not metrics_path.exists():
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    try:
-        with open(metrics_path, "r") as f:
-            metrics = json.load(f)
-        
-        images = []
-        for f in sorted(run_dir.glob("*.png")):
-            if f.stat().st_size > 0:
-                images.append(f"/outputs/eval/{run_id}/{f.name}")
-        
-        # Calculate impact if not already in metrics (or just return what's there)
-        green_impact = metrics.get("sustainability")
-        if not green_impact:
-             green_impact = greendc.calculate_impact(
-                baseline_power_w=metrics['baseline']['total_power_consumption'],
-                scari_power_w=metrics['scari']['total_power_consumption'],
-                simulation_steps=metrics['scari'].get('total_steps', 5000)
-            )
-
-        return {
-            "metrics": metrics,
-            "images": images,
-            "sustainability": green_impact,
-            "id": run_id
-        }
-    except Exception as e:
-        logger.error(f"Error reading history detail for {run_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to parse results")
-
-@app.delete("/history/{run_id}")
-async def delete_history_run(run_id: str):
-    """Delete a historical run."""
-    safe_id = os.path.basename(run_id)
-    run_dir = OUTPUTS_DIR / safe_id
-    if not run_dir.exists():
-        raise HTTPException(status_code=404, detail="Run not found")
-    
-    try:
-        shutil.rmtree(run_dir)
-        return {"message": f"Deleted {run_id}"}
-    except Exception as e:
-        logger.error(f"Error deleting history run {run_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete")
-
 @app.get("/evaluation-status")
 async def get_evaluation_status():
     """Get the current evaluation status."""
@@ -653,38 +549,39 @@ async def get_evaluation_status():
 
 @app.get("/evaluation-results")
 async def get_results():
-    """Get the results of the last evaluation with safety checks."""
-    metrics_path = OUTPUTS_DIR / "metrics.json"
-    if not metrics_path.exists():
-        logger.warning("Attempted to fetch results but metrics.json is missing")
+    """Get the results of the most recent evaluation run."""
+    # Find the latest run directory by modification time
+    run_dirs = [
+        d for d in OUTPUTS_DIR.iterdir()
+        if d.is_dir() and (d / "metrics.json").exists()
+    ]
+    if not run_dirs:
         return {"error": "No results available. Please run an evaluation first."}
-    
+
+    latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
+    metrics_path = latest_dir / "metrics.json"
+
     try:
         with open(metrics_path, "r") as f:
             metrics = json.load(f)
     except Exception as e:
         logger.error(f"Error reading metrics.json: {e}")
         return {"error": "Failed to parse evaluation results."}
-    
-    # List available images in outputs/eval
+
     images = []
     try:
-        for f in sorted(OUTPUTS_DIR.glob("*.png")):
-            # Only include valid images
+        for f in sorted(latest_dir.glob("*.png")):
             if f.stat().st_size > 0:
-                images.append(f"/outputs/eval/{f.name}")
+                images.append(f"/outputs/eval/{latest_dir.name}/{f.name}")
     except Exception as e:
         logger.error(f"Error listing output images: {e}")
-        # Continue without images if there's an error
-        images = []
-    
-    # Calculate sustainability impact
+
     green_impact = greendc.calculate_impact(
         baseline_power_w=metrics['baseline']['total_power_consumption'],
         scari_power_w=metrics['scari']['total_power_consumption'],
         simulation_steps=metrics['scari'].get('total_steps', 5000)
     )
-        
+
     return {
         "metrics": metrics,
         "images": images,

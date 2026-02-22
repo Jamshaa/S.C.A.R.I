@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -20,23 +19,27 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+htmlcov/
 
 # Virtual Environment
 venv/
 ENV/
+env/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment Variables
+# Environment Variables (NEVER commit secrets)
 .env
 .env.local
+.env.*.local
 
 # Project Specific
 logs/*
 !logs/.gitkeep
 data/models/*.zip
+data/models/*.pkl
 data/results/*
 outputs/eval/*
 !outputs/eval/.gitkeep
@@ -44,4 +47,14 @@ outputs/eval/*
 .vscode/
 .idea/
 *.log
-config.json
+
+# Frontend build
+ui/dist/
+ui/node_modules/
+
+# TensorBoard logs
+logs/tb/
+
+# Coverage
+.coverage
+coverage.xml
