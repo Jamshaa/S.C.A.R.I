@@ -7,13 +7,6 @@ import {
   Lock, Unlock, Trash2, Clock
 } from 'lucide-react';
 import { API_BASE } from './config';
-
-/* ─── REAL-WORLD DC PRESETS ─────────────────────────────────────
-   Values based on industry benchmarks:
-     - Small DC: ~75 servers, 300kW IT load, PUE 1.8 typical/1.3 good
-     - Medium DC: ~750 servers, 3MW IT load, PUE 1.6 typical/1.15 good  
-     - Enterprise DC: ~5000 servers, 20MW IT load, PUE 1.5 typical/1.08 optimized
-   ────────────────────────────────────────────────────────────── */
 const PRESETS = {
   small: {
     name: 'Edge / Small',
@@ -52,10 +45,6 @@ const PRESETS = {
     }
   }
 };
-
-/* ─── REGIONAL ENERGY RATES ────────────────────────────────────
-   Source: Eurostat / EIA 2024 industrial rates
-   ────────────────────────────────────────────────────────────── */
 const REGION_DATA = {
   EU:   { price: 0.18, currency: '€', label: 'Europe',    intensity: 0.255 },
   ES:   { price: 0.14, currency: '€', label: 'Spain',     intensity: 0.184 },
@@ -69,25 +58,21 @@ const REGION_DATA = {
   IN:   { price: 0.07, currency: '$', label: 'India',     intensity: 0.700 },
   ASIA: { price: 0.07, currency: '$', label: 'Asia-Pac',  intensity: 0.500 },
 };
-
 const DataCenterCalculator = ({ onToast, evalResults }) => {
   const [activeTab, setActiveTab] = useState('config');
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [selectedPreset, setSelectedPreset] = useState(null);
-  
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-
   const [analysisOptions, setAnalysisOptions] = useState({
     operational: true,
     embodied: true,
     network: true,
     roi: false
   });
-
   const [formData, setFormData] = useState({
     num_servers: 500,
     topology: 'spine_leaf',
@@ -96,30 +81,22 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     optimized_pue: 1.10,
     region: 'EU'
   });
-
   const [roiData, setRoiData] = useState({
     investment_eur: 500000,
     annual_savings_eur: 100000
   });
-
-  /* ─── LIVE ESTIMATE ────────────────────────────────────────── */
   const estimatedSavings = useMemo(() => {
     const { annual_power_kwh, baseline_pue, optimized_pue, region } = formData;
     const regionInfo = REGION_DATA[region] || REGION_DATA.EU;
-    
     const baselineEnergy = annual_power_kwh * baseline_pue;
     const optimizedEnergy = annual_power_kwh * optimized_pue;
     const energySavedKwh = Math.max(0, baselineEnergy - optimizedEnergy);
-    
     const costSaved = energySavedKwh * regionInfo.price;
     const co2Saved  = energySavedKwh * regionInfo.intensity;
     const pueReduction = ((baseline_pue - optimized_pue) / baseline_pue) * 100;
     const energySavingPct = (energySavedKwh / baselineEnergy) * 100;
-    
     return { energySavedKwh, costSaved, co2Saved, pueReduction, energySavingPct, regionInfo };
   }, [formData]);
-
-  /* ─── IMPORT FROM SCARI EVALUATION ─────────────────────────── */
   const importFromEval = (evalData = evalResults) => {
     const src = evalData?.sustainability;
     if (!evalData || !src) {
@@ -129,7 +106,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     const avgPUE      = src.pue_optimized ?? 1.10;
     const baselinePUE = src.pue_baseline  ?? 1.67;
     const savings_pct = src.energy_savings_percent ?? src.pue_improvement_percent ?? 0;
-    
     setFormData(prev => ({
       ...prev,
       optimized_pue: parseFloat(avgPUE.toFixed(3)),
@@ -140,7 +116,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     setIsLocked(true);
     onToast?.(`Imported: PUE ${avgPUE.toFixed(3)}, ${savings_pct.toFixed(1)}% savings`, 'success');
   };
-
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
@@ -156,7 +131,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       setLoadingHistory(false);
     }
   };
-
   const loadHistoricalRun = async (evalId) => {
     try {
       const res = await fetch(`${API_BASE}/history/${evalId}`);
@@ -165,7 +139,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       onToast?.('Failed to load historical run', 'error');
     }
   };
-
   const deleteHistoricalRun = async (evalId, e) => {
     e?.stopPropagation();
     try {
@@ -180,23 +153,19 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       onToast?.('Failed to delete evaluation', 'error');
     }
   };
-
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     setSelectedPreset(null);
   };
-
   const applyPreset = (key) => {
     setFormData(prev => ({ ...prev, ...PRESETS[key].values }));
     setSelectedPreset(key);
     setIsLocked(false);
     onToast?.(`Applied ${PRESETS[key].name} preset`, 'success');
   };
-
   const toggleAnalysisOption = (opt) => {
     setAnalysisOptions(prev => ({ ...prev, [opt]: !prev[opt] }));
   };
-
   const runAnalysis = async () => {
     setIsLoading(true);
     try {
@@ -207,9 +176,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      
       let final = { ...data.data };
-
       if (analysisOptions.roi) {
         const roiRes = await fetch(`${API_BASE}/calculator/roi-analysis`, {
           method: 'POST',
@@ -222,11 +189,9 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
         });
         if (roiRes.ok) final.roi = (await roiRes.json()).data;
       }
-
       if (!analysisOptions.operational) delete final.operational;
       if (!analysisOptions.embodied) delete final.embodied;
       if (!analysisOptions.network) delete final.network;
-
       setResults(final);
       setActiveTab('results');
       onToast?.('Analysis complete', 'success');
@@ -236,7 +201,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       setIsLoading(false);
     }
   };
-
   const exportResults = () => {
     if (!results) return;
     const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
@@ -248,8 +212,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     URL.revokeObjectURL(url);
     onToast?.('Exported', 'success');
   };
-
-  /* ─── PUE BAR COMPONENT ────────────────────────────────────── */
   const PUEBar = ({ value, label, isOptimized }) => {
     const normalised = Math.max(0, Math.min(1, (value - 1.0) / 1.0));
     return (
@@ -272,8 +234,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       </div>
     );
   };
-
-  /* ─── METRIC CARD COMPONENT ────────────────────────────────── */
   const MetricCard = ({ label, value, unit, icon: Icon, accent = false, subtitle }) => (
     <div className="metric-card">
       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
@@ -287,10 +247,8 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
       {subtitle && <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '5px', lineHeight: 1.4 }}>{subtitle}</p>}
     </div>
   );
-
   return (
     <div style={{ width: '100%' }}>
-      {/* ── HEADER ─────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
         marginBottom: '28px', paddingBottom: '20px', borderBottom: '1px solid var(--border)'
@@ -310,8 +268,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           </button>
         )}
       </div>
-
-      {/* ── TABS ───────────────────────────────────────────── */}
       <div className="tab-bar">
         {[
           { id: 'config',   label: 'Configuration' },
@@ -327,8 +283,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           </button>
         ))}
       </div>
-
-      {/* ── LIVE ESTIMATE BANNER ───────────────────────────── */}
       {activeTab !== 'results' && (
         <div className="card" style={{
           marginBottom: '24px',
@@ -382,13 +336,8 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           </div>
         </div>
       )}
-
-      {/* ══════════════════════════════════════════════════════
-          CONFIGURATION TAB
-          ══════════════════════════════════════════════════ */}
       {activeTab === 'config' && (
         <div>
-          {/* Quick Presets */}
           <div className="card-title">
             <Server size={11} />
             Quick Presets
@@ -420,8 +369,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               </button>
             ))}
           </div>
-
-          {/* Telemetry Import */}
           <div className="card" style={{ marginBottom: '28px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div>
@@ -438,13 +385,11 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                     : 'No external telemetry linked'}
                 </p>
               </div>
-              
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="btn btn-outline btn-sm" onClick={fetchHistory}>
                   {loadingHistory ? <Loader2 size={11} className="spin" /> : <Clock size={11} />}
                   History
                 </button>
-
                 <button
                   className={`btn btn-sm ${evalResults?.sustainability ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => importFromEval(evalResults)}
@@ -452,7 +397,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 >
                   Import Latest
                 </button>
-
                 {isLocked && (
                   <button
                     className="btn btn-outline btn-sm"
@@ -465,8 +409,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 )}
               </div>
             </div>
-
-            {/* History List */}
             {showHistory && (
               <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -515,8 +457,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               </div>
             )}
           </div>
-
-          {/* Manual Input */}
           <div className="card-title">
             <Settings size={11} />
             Manual Configuration
@@ -532,7 +472,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               />
               <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>Physical servers in facility</p>
             </div>
-
             <div>
               <label>Network Topology</label>
               <select value={formData.topology} onChange={e => handleInputChange('topology', e.target.value)} disabled={isLocked}>
@@ -542,7 +481,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 <option value="three_tier">3-Tier Traditional</option>
               </select>
             </div>
-
             <div>
               <label>Annual IT Power (kWh)</label>
               <input
@@ -555,7 +493,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 IT equipment load only — overhead added via PUE
               </p>
             </div>
-
             <div>
               <label>Region</label>
               <select value={formData.region} onChange={e => handleInputChange('region', e.target.value)} disabled={isLocked}>
@@ -564,7 +501,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 ))}
               </select>
             </div>
-
             <div>
               <label>Baseline PUE (current facility)</label>
               <input
@@ -578,7 +514,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               />
               <PUEBar value={formData.baseline_pue} label="Baseline efficiency" isOptimized={false} />
             </div>
-
             <div>
               <label>Optimised PUE (with S.C.A.R.I)</label>
               <input
@@ -595,10 +530,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           </div>
         </div>
       )}
-
-      {/* ══════════════════════════════════════════════════════
-          ANALYSIS OPTIONS TAB
-          ══════════════════════════════════════════════════ */}
       {activeTab === 'analysis' && (
         <div>
           <div className="card-title">Select Analyses to Run</div>
@@ -639,8 +570,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               </div>
             ))}
           </div>
-
-          {/* ROI inputs */}
           {analysisOptions.roi && (
             <div className="card animate-fade-in">
               <div className="card-title">
@@ -673,10 +602,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           )}
         </div>
       )}
-
-      {/* ══════════════════════════════════════════════════════
-          RESULTS TAB
-          ══════════════════════════════════════════════════ */}
       {activeTab === 'results' && (
         <div>
           {!results ? (
@@ -699,8 +624,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-              {/* Summary row */}
               {results.summary && (
                 <div>
                   <div className="card-title">Summary</div>
@@ -719,8 +642,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   </div>
                 </div>
               )}
-
-              {/* Operational */}
               {results.operational && (
                 <div className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -755,8 +676,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   )}
                 </div>
               )}
-
-              {/* Embodied */}
               {results.embodied && (
                 <div className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -782,8 +701,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   </div>
                 </div>
               )}
-
-              {/* Network */}
               {results.network && (
                 <div className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -799,8 +716,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   </div>
                 </div>
               )}
-
-              {/* ROI */}
               {results.roi && (
                 <div className="card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -830,8 +745,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   </div>
                 </div>
               )}
-
-              {/* Environmental callout */}
               {results.operational?.improvements?.co2_reduction_kg && (
                 <div className="card" style={{
                   display: 'flex', alignItems: 'center', gap: '20px',
@@ -854,8 +767,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           )}
         </div>
       )}
-
-      {/* ── RUN BUTTON ────────────────────────────────────── */}
       {activeTab !== 'results' && (
         <button
           onClick={runAnalysis}
@@ -870,5 +781,4 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     </div>
   );
 };
-
 export default DataCenterCalculator;

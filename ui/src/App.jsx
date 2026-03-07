@@ -1,67 +1,43 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Activity, Play, BarChart3, 
+import {
+  Activity, Play, BarChart3,
   RefreshCw, AlertCircle, CheckCircle2, Loader2,
   History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
   ChevronRight, Download, Cpu, Zap, ThermometerSun,
-  Shield, TrendingDown, TreePine, Minus, Plus, Image
+  Shield, TrendingDown, TreePine, Minus, Plus, Image,
+  Droplets, Wind, GitMerge, Globe
 } from 'lucide-react';
 import DataCenterCalculator from './DataCenterCalculator';
+import GlobalEmissions from './GlobalEmissions';
 import { API_BASE } from './config';
-
-/* ── UTILS ──────────────────────────────────────────────────── */
 const fetchWithRetry = async (url, options = {}, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
       if (res.ok) return res;
       if (res.status >= 400 && res.status < 500) throw new Error(await res.text());
-      throw new Error(`Request failed: ${res.status}`); 
+      throw new Error(`Request failed: ${res.status}`);
     } catch (e) {
       if (e.name === 'AbortError') return null;
       if (i === retries - 1) throw e;
-      await new Promise(r => setTimeout(r, 1000 * (i + 1))); 
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
 };
-
 const fmt = (n, decimals = 0) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
   return n.toFixed(decimals);
 };
-
 const fmtSteps = (n) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return n.toString();
 };
-
-/* ── STEPPER INPUT ────────────────────────────────────────────── */
 const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
-
   const clamp = (v) => Math.max(min, Math.min(max, v));
-
-  const startHold = (delta) => {
-    onChange(clamp(value + delta));
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        onChange(prev => clamp((typeof prev === 'function' ? prev : prev) + delta));
-      }, 80);
-    }, 400);
-  };
-
-  const stopHold = () => {
-    clearTimeout(timeoutRef.current);
-    clearInterval(intervalRef.current);
-  };
-
-  // For the hold-to-repeat, we need a ref to current value
-  const valueRef = useRef(value);
-  useEffect(() => { valueRef.current = value; }, [value]);
-
   const startHoldSafe = (delta) => {
     onChange(clamp(value + delta));
     timeoutRef.current = setTimeout(() => {
@@ -71,23 +47,24 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
       }, 80);
     }, 400);
   };
-
+  const stopHold = () => {
+    clearTimeout(timeoutRef.current);
+    clearInterval(intervalRef.current);
+  };
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
   const [inputValue, setInputValue] = useState(fmtSteps(value));
-
   useEffect(() => {
     setInputValue(fmtSteps(value));
   }, [value]);
-
   const handleInputChange = (e) => {
     setInputValue(e.target.value);
   };
-
   const handleInputBlur = () => {
     let raw = inputValue.toLowerCase();
     let val = parseFloat(raw);
     if (raw.endsWith('m')) val *= 1_000_000;
     else if (raw.endsWith('k')) val *= 1_000;
-    
     if (isNaN(val)) {
       setInputValue(fmtSteps(value));
     } else {
@@ -96,15 +73,13 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
       setInputValue(fmtSteps(clamped));
     }
   };
-
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleInputBlur();
   };
-
   return (
     <div>
       <div className="stepper">
-        <button 
+        <button
           className="stepper-btn"
           onMouseDown={() => startHoldSafe(-step)}
           onMouseUp={stopHold}
@@ -113,7 +88,7 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
         >
           <Minus size={14} />
         </button>
-        <input 
+        <input
           type="text"
           className="stepper-input-field"
           value={inputValue}
@@ -121,7 +96,7 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
           onBlur={handleInputBlur}
           onKeyDown={handleKeyDown}
         />
-        <button 
+        <button
           className="stepper-btn"
           onMouseDown={() => startHoldSafe(step)}
           onMouseUp={stopHold}
@@ -147,24 +122,19 @@ const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, p
     </div>
   );
 };
-
-/* Chart name mapping for human-readable titles */
 const CHART_LABELS = {
   'temperature_comparison': { title: 'Temperature Over Time', desc: 'Server temperatures: baseline PID vs SCARI agent' },
-  'power_comparison':       { title: 'Power Consumption', desc: 'Total electrical power usage comparison' },
-  'cooling_efficiency':     { title: 'Cooling Efficiency', desc: 'PUE and cooling energy overhead per step' },
-  'performance_dashboard':  { title: 'Performance Dashboard', desc: 'Summary of all key metrics in one view' },
-  'reward_analysis':        { title: 'Agent Reward', desc: 'Cumulative reward signal during evaluation' },
+  'power_comparison': { title: 'Power Consumption', desc: 'Total electrical power usage comparison' },
+  'cooling_efficiency': { title: 'Cooling Efficiency', desc: 'PUE and cooling energy overhead per step' },
+  'performance_dashboard': { title: 'Performance Dashboard', desc: 'Summary of all key metrics in one view' },
+  'reward_analysis': { title: 'Agent Reward', desc: 'Cumulative reward signal during evaluation' },
 };
-
 const getChartLabel = (imgPath) => {
   for (const [key, label] of Object.entries(CHART_LABELS)) {
     if (imgPath.toLowerCase().includes(key)) return label;
   }
   return { title: `Analysis Chart`, desc: 'Evaluation metric visualisation' };
 };
-
-/* ── TOAST ──────────────────────────────────────────────────── */
 const Toast = ({ message, type }) => (
   <div className={`toast animate-slide-up ${type}`}>
     {type === 'success'
@@ -173,18 +143,15 @@ const Toast = ({ message, type }) => (
     <span>{message}</span>
   </div>
 );
-
-/* ── MAIN APP ────────────────────────────────────────────────── */
 const App = () => {
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
-  
   const [isTraining, setIsTraining] = useState(false);
   const [trainingSteps, setTrainingSteps] = useState(600000);
   const [trainingName, setTrainingName] = useState('scari_thermal_safe');
+  const [coolingMode, setCoolingMode] = useState('AIR');
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [lastLog, setLastLog] = useState('');
-  
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalSteps, setEvalSteps] = useState(5000);
   const [evalName, setEvalName] = useState('eval_optimization');
@@ -192,7 +159,6 @@ const App = () => {
   const [results, setResults] = useState(null);
   const [evalHistory, setEvalHistory] = useState([]);
   const [loadingEvalHistory, setLoadingEvalHistory] = useState(false);
-  
   const [selectedDecision, setSelectedDecision] = useState(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameTarget, setRenameTarget] = useState('');
@@ -200,35 +166,30 @@ const App = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState('');
   const [toasts, setToasts] = useState([]);
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+  const [compareSelections, setCompareSelections] = useState({ air: '', liquid: '', hybrid: '' });
   const [theme, setTheme] = useState(() =>
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   );
   const [mainTab, setMainTab] = useState('analytics');
-
   const isTrainingRef = useRef(isTraining);
   const isEvaluatingRef = useRef(isEvaluating);
-  
   useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
   useEffect(() => { isEvaluatingRef.current = isEvaluating; }, [isEvaluating]);
-
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-
   useEffect(() => {
     fetchModels();
     fetchEvalHistory();
     let isMounted = true;
     let errorCount = 0;
-    
     const poll = async () => {
       if (!isMounted) return;
-      
       try {
         await fetchStatus();
-        errorCount = 0; // Reset on success
+        errorCount = 0; 
       } catch {
         errorCount++;
         if (errorCount > 5) {
@@ -237,36 +198,28 @@ const App = () => {
           return;
         }
       }
-      
       if (isMounted) {
-        // Exponential backoff or constant with safety
         const delay = Math.min(2000 * Math.pow(1.2, errorCount), 10000);
         setTimeout(poll, delay);
       }
     };
-    
     const timeout = setTimeout(poll, 2000);
     return () => {
       isMounted = false;
       clearTimeout(timeout);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
   };
-
-  /* ── DATA FETCHING ──────────────────────────────────────────── */
   const fetchModels = () => {
     fetch(`${API_BASE}/models`)
       .then(res => res.json())
       .then(data => setModels(data.models || []))
       .catch(() => addToast('Failed to fetch models', 'error'));
   };
-
   const fetchEvalHistory = () => {
     setLoadingEvalHistory(true);
     fetch(`${API_BASE}/history`)
@@ -275,7 +228,6 @@ const App = () => {
       .catch(() => addToast('Failed to fetch evaluation history', 'error'))
       .finally(() => setLoadingEvalHistory(false));
   };
-
   const loadEvalResult = async (runId) => {
     try {
       const res = await fetch(`${API_BASE}/history/${runId}`);
@@ -288,7 +240,6 @@ const App = () => {
       addToast(`Failed to load: ${e.message}`, 'error');
     }
   };
-
   const deleteEvalResult = async (runId, e) => {
     if (e) e.stopPropagation();
     if (!window.confirm(`Delete evaluation ${runId}?`)) return;
@@ -301,14 +252,12 @@ const App = () => {
       addToast('Delete failed', 'error');
     }
   };
-
   const fetchStatus = async () => {
     try {
       const [statusRes, evalRes] = await Promise.all([
         fetchWithRetry(`${API_BASE}/status`),
         fetchWithRetry(`${API_BASE}/evaluation-status`)
       ]);
-      
       if (statusRes) {
         const sd = await statusRes.json();
         if (sd.is_training) {
@@ -321,7 +270,6 @@ const App = () => {
           fetchModels();
         }
       }
-      
       if (evalRes) {
         const ed = await evalRes.json();
         if (ed.is_evaluating) {
@@ -331,22 +279,19 @@ const App = () => {
           setIsEvaluating(false);
           setEvalLog('');
           fetchResults();
-          fetchEvalHistory(); // Refresh history after evaluation
+          fetchEvalHistory(); 
         }
       }
-    } catch { /* silent */ }
+    } catch {  }
   };
-
   const fetchResults = async () => {
     try {
       const res = await fetchWithRetry(`${API_BASE}/evaluation-results`);
       if (!res) return;
       const data = await res.json();
       if (data.metrics) setResults(data);
-    } catch { /* silent */ }
+    } catch {  }
   };
-
-  /* ── ACTIONS ────────────────────────────────────────────────── */
   const handleTrain = async () => {
     try {
       const res = await fetch(`${API_BASE}/train`, {
@@ -355,18 +300,45 @@ const App = () => {
         body: JSON.stringify({
           timesteps: trainingSteps,
           name: trainingName,
-          config: 'configs/default.yaml'
+          config: 'configs/default.yaml',
+          cooling_mode: coolingMode
         })
       });
       if (!res.ok) throw new Error(await res.text());
       setIsTraining(true);
       setTrainingProgress(0);
-      addToast('Training started');
+      addToast(`Training started (${coolingMode} cooling)`);
     } catch (e) {
       addToast(e.message || 'Training failed', 'error');
     }
   };
-
+  const handleRunComparison = async () => {
+    const { air, liquid, hybrid } = compareSelections;
+    if (!air || !liquid || !hybrid) {
+      addToast('Please select all three models for comparison', 'error');
+      return;
+    }
+    setIsCompareModalOpen(false);
+    setIsEvaluating(true);
+    setEvalLog('Requesting comparative evaluation…');
+    try {
+      const res = await fetch(`${API_BASE}/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'MULTI', 
+          models: [air, liquid, hybrid],
+          steps: evalSteps,
+          name: evalName
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      addToast(`Comparing: ${air}, ${liquid}, ${hybrid}`);
+    } catch (e) {
+      addToast(e.message || 'Evaluation failed', 'error');
+      setIsEvaluating(false);
+    }
+  };
   const handleEvaluate = async () => {
     if (!selectedModel) {
       addToast('Select a model first', 'error');
@@ -378,10 +350,10 @@ const App = () => {
       const res = await fetch(`${API_BASE}/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          model: selectedModel, 
+        body: JSON.stringify({
+          model: selectedModel,
           steps: evalSteps,
-          name: evalName 
+          name: evalName
         })
       });
       if (!res.ok) throw new Error(await res.text());
@@ -392,7 +364,6 @@ const App = () => {
       addToast(e.message || 'Evaluation failed', 'error');
     }
   };
-
   const handleRename = async () => {
     if (!newName.trim()) return;
     try {
@@ -402,7 +373,6 @@ const App = () => {
         body: JSON.stringify({ old_name: renameTarget, new_name: newName })
       });
       if (!res.ok) throw new Error(await res.text());
-      
       addToast('Model renamed', 'success');
       const finalName = newName.endsWith('.zip') ? newName : `${newName}.zip`;
       setModels(prev => prev.map(m => m === renameTarget ? finalName : m));
@@ -413,18 +383,15 @@ const App = () => {
       addToast(e.message || 'Rename failed', 'error');
     }
   };
-
   const handleRequestDelete = (modelName, e) => {
     e.stopPropagation();
     setDeleteTarget(modelName);
     setIsDeleting(true);
   };
-
   const handleRequestDeleteAll = () => {
     setDeleteTarget('ALL');
     setIsDeleting(true);
   };
-
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     if (deleteTarget === 'ALL') {
@@ -452,8 +419,6 @@ const App = () => {
     setIsDeleting(false);
     setDeleteTarget('');
   };
-
-  /* ── CHART DOWNLOAD — proper blob-based method ───────────── */
   const downloadChart = async (imgUrl, filename) => {
     try {
       const res = await fetch(`${API_BASE}${imgUrl}`);
@@ -471,15 +436,12 @@ const App = () => {
       addToast('Download failed', 'error');
     }
   };
-
   const downloadAllCharts = async () => {
     if (!results?.images) return;
     for (let i = 0; i < results.images.length; i++) {
       await downloadChart(results.images[i], `scari_chart_${i + 1}.png`);
     }
   };
-
-  /* ── MODAL OVERLAY ────────────────────────────────────────── */
   const ModalOverlay = ({ children }) => (
     <div style={{
       position: 'fixed', inset: 0,
@@ -490,11 +452,8 @@ const App = () => {
       {children}
     </div>
   );
-
-  /* ── RENDER ────────────────────────────────────────────────── */
   return (
     <div className="app-container">
-      {/* Delete Modal */}
       {isDeleting && (
         <ModalOverlay>
           <div className="card animate-fade-in" style={{
@@ -523,8 +482,6 @@ const App = () => {
           </div>
         </ModalOverlay>
       )}
-
-      {/* Rename Modal */}
       {isRenaming && (
         <ModalOverlay>
           <div className="card animate-fade-in" style={{ width: '400px', padding: '28px', margin: 0, boxShadow: 'var(--shadow-lg)' }}>
@@ -532,8 +489,8 @@ const App = () => {
               Rename Model
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px' }}>{renameTarget}</p>
-            <input 
-              value={newName} 
+            <input
+              value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleRename()}
               placeholder="new_identifier"
@@ -546,32 +503,25 @@ const App = () => {
           </div>
         </ModalOverlay>
       )}
-      
-      {/* ═══════════════════════════════════════════════════════
-          SIDEBAR
-          ═══════════════════════════════════════════════════ */}
       <aside className="sidebar">
-        {/* Brand */}
         <div className="sidebar-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h1 style={{ letterSpacing: '-0.05em', fontSize: '24px' }}>S.C.A.R.I</h1>
-            <p style={{ 
-              fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.18em', 
-              fontWeight: 700, color: 'var(--muted)', marginTop: '3px' 
+            <p style={{
+              fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.18em',
+              fontWeight: 700, color: 'var(--muted)', marginTop: '3px'
             }}>
               Cooling Intelligence
             </p>
           </div>
-          <button 
-            className="btn btn-ghost" 
+          <button
+            className="btn btn-ghost"
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
           >
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </div>
-
-        {/* Training Config */}
         <section className="sidebar-section">
           <div className="card-title">
             <Cpu size={11} />
@@ -579,7 +529,7 @@ const App = () => {
           </div>
           <div>
             <label>Run Identifier</label>
-            <input 
+            <input
               value={trainingName}
               onChange={e => setTrainingName(e.target.value)}
               placeholder="run_01"
@@ -593,10 +543,37 @@ const App = () => {
               max={10000000}
               presets={[100000, 300000, 600000, 1000000]}
             />
-            <button 
-              className="btn btn-primary" 
+            <label style={{ marginTop: '10px' }}>Cooling Mode</label>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+              {[
+                { id: 'AIR', icon: Wind, label: 'Air', cost: '€150' },
+                { id: 'LIQUID', icon: Droplets, label: 'Water', cost: '€850' },
+                { id: 'HYBRID', icon: GitMerge, label: 'Hybrid', cost: '€500' },
+              ].map(m => (
+                <button
+                  key={m.id}
+                  className={`preset-pill ${coolingMode === m.id ? 'active' : ''}`}
+                  onClick={() => setCoolingMode(m.id)}
+                  style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', padding: '8px 4px' }}
+                >
+                  <m.icon size={14} />
+                  <span style={{ fontSize: '10px', fontWeight: 600 }}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{
+              fontSize: '10px', color: 'var(--muted)', padding: '6px 8px',
+              background: 'var(--surface-raised)', borderRadius: 'var(--radius)',
+              border: '1px solid var(--border)', marginBottom: '8px', lineHeight: 1.6
+            }}>
+              {coolingMode === 'AIR' && '💨 Traditional forced-air · €150/srv CAPEX · PUE ~1.4'}
+              {coolingMode === 'LIQUID' && '💧 Direct liquid cooling · €850/srv CAPEX · PUE ~1.05'}
+              {coolingMode === 'HYBRID' && '⚡ Air + Liquid hybrid · €500/srv CAPEX · PUE ~1.15'}
+            </div>
+            <button
+              className="btn btn-primary"
               style={{ width: '100%', marginTop: '4px' }}
-              onClick={handleTrain} 
+              onClick={handleTrain}
               disabled={isTraining}
             >
               {isTraining ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
@@ -604,8 +581,6 @@ const App = () => {
             </button>
           </div>
         </section>
-
-        {/* Training progress */}
         {isTraining && (
           <div style={{ marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
@@ -615,22 +590,20 @@ const App = () => {
               </span>
             </div>
             <div className="progress-track">
-              <div className="progress-fill" style={{ 
-                width: `${trainingProgress}%`, 
-                background: 'var(--accent)' 
+              <div className="progress-fill" style={{
+                width: `${trainingProgress}%`,
+                background: 'var(--accent)'
               }} />
             </div>
-            <p style={{ 
-              fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--muted)', 
+            <p style={{
+              fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
               marginTop: '6px', lineHeight: 1.5, maxHeight: '40px', overflow: 'hidden'
             }}>
               {lastLog || '> Initialising…'}
             </p>
           </div>
         )}
-
-        {/* Model Registry */}
-        <section style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <section style={{ display: 'flex', flexDirection: 'column', minHeight: '80px' }}>
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Activity size={11} />
@@ -640,11 +613,9 @@ const App = () => {
               <RefreshCw size={11} />
             </button>
           </div>
-
-          {/* Evaluation controls */}
-          <div style={{ marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+          <div style={{ marginBottom: '12px' }}>
             <label>Run Name</label>
-            <input 
+            <input
               value={evalName}
               onChange={e => setEvalName(e.target.value)}
               placeholder="eval_optimization"
@@ -659,23 +630,34 @@ const App = () => {
               max={50000}
               presets={[1000, 5000, 10000, 25000]}
             />
-            <button 
-              className="btn btn-primary" 
-              style={{ width: '100%' }}
-              onClick={handleEvaluate}
-              disabled={!selectedModel || isEvaluating}
-            >
-              {isEvaluating ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
-              {isEvaluating ? 'Evaluating…' : 'Run Evaluation'}
-            </button>
           </div>
-          
-          <div style={{ overflowY: 'auto', flex: 1 }}>
+          <button
+            className="btn btn-primary"
+            style={{ width: '100%', marginBottom: '16px' }}
+            onClick={handleEvaluate}
+            disabled={!selectedModel || isEvaluating}
+          >
+            {isEvaluating ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+            {isEvaluating ? 'Evaluating…' : 'Run Evaluation'}
+          </button>
+          <div style={{ overflowY: 'auto', maxHeight: '150px' }}>
             {models.length === 0 && (
               <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>No models found</p>
             )}
+            {models.length > 0 && (
+              <div
+                className="group"
+                onClick={() => setIsCompareModalOpen(true)}
+                style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', background: 'rgba(var(--accent-rgb), 0.1)', cursor: 'pointer' }}
+              >
+                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)' }}>
+                  <GitMerge size={11} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
+                  Compare All Modes...
+                </span>
+              </div>
+            )}
             {models.map(m => (
-              <div 
+              <div
                 key={m}
                 className={`group ${selectedModel === m ? 'selected' : ''}`}
                 onClick={() => setSelectedModel(m)}
@@ -689,14 +671,14 @@ const App = () => {
                   flex: 1
                 }}>{m}</span>
                 <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                  <button 
+                  <button
                     className="btn btn-ghost btn-sm"
                     onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
                     style={{ padding: '3px' }}
                   >
                     <Edit2 size={11} />
                   </button>
-                  <button 
+                  <button
                     className="btn btn-ghost btn-sm"
                     onClick={(e) => handleRequestDelete(m, e)}
                     style={{ padding: '3px', color: 'var(--danger)' }}
@@ -708,10 +690,8 @@ const App = () => {
             ))}
           </div>
         </section>
-
-        {/* Evaluation Registry */}
-        <section style={{ height: '240px', display: 'flex', flexDirection: 'column', marginTop: '24px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <section style={{ display: 'flex', flexDirection: 'column', marginTop: '28px', borderTop: '1px solid var(--border)', paddingTop: '20px', flex: 1, minHeight: 0 }}>
+          <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <History size={11} />
               Eval History
@@ -720,12 +700,12 @@ const App = () => {
               <RefreshCw size={11} className={loadingEvalHistory ? 'spin' : ''} />
             </button>
           </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
+          <div style={{ overflowY: 'auto', flex: 1, marginTop: '4px' }}>
             {evalHistory.length === 0 && !loadingEvalHistory && (
-              <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>No history found</p>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '16px 0', textAlign: 'center' }}>No history found</p>
             )}
             {evalHistory.map(h => (
-              <div 
+              <div
                 key={h.id}
                 className="group"
                 onClick={() => loadEvalResult(h.id)}
@@ -739,7 +719,7 @@ const App = () => {
                     {h.timestamp} · {h.savings?.toFixed(1)}% save
                   </p>
                 </div>
-                <button 
+                <button
                   className="btn btn-ghost btn-sm"
                   onClick={(e) => deleteEvalResult(h.id, e)}
                   style={{ padding: '3px', color: 'var(--danger)', marginLeft: '8px' }}
@@ -749,12 +729,11 @@ const App = () => {
               </div>
             ))}
           </div>
-
           {models.length > 0 && (
             <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-              <button 
-                className="btn btn-outline btn-sm" 
-                style={{ width: '100%', borderStyle: 'dashed' }} 
+              <button
+                className="btn btn-outline btn-sm"
+                style={{ width: '100%', borderStyle: 'dashed' }}
                 onClick={handleRequestDeleteAll}
               >
                 <Trash2 size={11} />
@@ -764,395 +743,455 @@ const App = () => {
           )}
         </section>
       </aside>
-
-      {/* ═══════════════════════════════════════════════════════
-          MAIN CONTENT
-          ═══════════════════════════════════════════════════ */}
       <main className="main-content">
         <div className="content-area">
-
-        {/* Header + Tab Switcher */}
-        <header style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'flex-end', 
-          paddingBottom: '20px', 
-          marginBottom: '32px',
-          borderBottom: '1px solid var(--border)' 
-        }}>
-          <div>
-            <h1 style={{ fontSize: '26px', letterSpacing: '-0.04em', marginBottom: '3px' }}>
-              {mainTab === 'analytics' ? 'Telemetry' : 'Sustainability'}
-            </h1>
-            <p style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              {mainTab === 'analytics' ? 'Model evaluation & performance' : 'Resource efficiency & ROI analysis'}
-            </p>
-          </div>
-          
-          <div className="tab-bar" style={{ marginBottom: 0 }}>
-            <button
-              className={`tab-btn ${mainTab === 'analytics' ? 'active' : ''}`}
-              onClick={() => setMainTab('analytics')}
-            >
-              <BarChart3 size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
-              Analytics
-            </button>
-            <button
-              className={`tab-btn ${mainTab === 'calculator' ? 'active' : ''}`}
-              onClick={() => setMainTab('calculator')}
-            >
-              <Leaf size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
-              Calculator
-            </button>
-          </div>
-        </header>
-
-        {/* ── ANALYTICS TAB ─────────────────────────────────── */}
-        {mainTab === 'analytics' && (
-          <>
-            {/* Active Process Log */}
-            {(isTraining || isEvaluating) && (
-              <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <Loader2 size={14} className="spin" color="var(--accent)" />
-                  <span className="card-title" style={{ margin: 0 }}>
-                    {isTraining ? 'Training in Progress' : 'Evaluation Running'}
-                  </span>
-                </div>
-                {isTraining && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <span className="text-label">Progress</span>
-                      <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{trainingProgress}%</span>
+          <header style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            paddingBottom: '20px',
+            marginBottom: '32px',
+            borderBottom: '1px solid var(--border)'
+          }}>
+            <div>
+              <h1 style={{ fontSize: '26px', letterSpacing: '-0.04em', marginBottom: '3px' }}>
+                {mainTab === 'analytics' ? 'Telemetry' : mainTab === 'calculator' ? 'Sustainability' : 'Global Emissions'}
+              </h1>
+              <p style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                {mainTab === 'analytics' ? 'Model evaluation & performance' : mainTab === 'calculator' ? 'Resource efficiency & ROI analysis' : 'Worldwide energy & CO₂ intelligence'}
+              </p>
+            </div>
+            <div className="tab-bar" style={{ marginBottom: 0 }}>
+              <button
+                className={`tab-btn ${mainTab === 'analytics' ? 'active' : ''}`}
+                onClick={() => setMainTab('analytics')}
+              >
+                <BarChart3 size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+                Analytics
+              </button>
+              <button
+                className={`tab-btn ${mainTab === 'global' ? 'active' : ''}`}
+                onClick={() => setMainTab('global')}
+              >
+                <Globe size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+                Global
+              </button>
+              <button
+                className={`tab-btn ${mainTab === 'calculator' ? 'active' : ''}`}
+                onClick={() => setMainTab('calculator')}
+              >
+                <Leaf size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+                Calculator
+              </button>
+            </div>
+          </header>
+          {mainTab === 'analytics' && (
+            <>
+              {(isTraining || isEvaluating) && (
+                <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <Loader2 size={14} className="spin" color="var(--accent)" />
+                    <span className="card-title" style={{ margin: 0 }}>
+                      {isTraining ? 'Training in Progress' : 'Evaluation Running'}
+                    </span>
+                  </div>
+                  {isTraining && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                        <span className="text-label">Progress</span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{trainingProgress}%</span>
+                      </div>
+                      <div className="progress-track" style={{ height: '6px' }}>
+                        <div className="progress-fill" style={{ width: `${trainingProgress}%`, background: 'var(--accent)' }} />
+                      </div>
                     </div>
-                    <div className="progress-track" style={{ height: '6px' }}>
-                      <div className="progress-fill" style={{ width: `${trainingProgress}%`, background: 'var(--accent)' }} />
+                  )}
+                  <div style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)',
+                    maxHeight: '80px', overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.5,
+                    padding: '10px 12px', background: 'var(--surface-raised)', borderRadius: 'var(--radius)',
+                    border: '1px solid var(--border)'
+                  }}>
+                    {isEvaluating ? (evalLog || '> Evaluation active…') : (lastLog || '> Booting compute kernels…')}
+                  </div>
+                </div>
+              )}
+              {!results && !isEvaluating && (
+                <div className="card" style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: '20px', padding: '80px 40px', textAlign: 'center'
+                }}>
+                  <div style={{
+                    width: '56px', height: '56px', borderRadius: '50%',
+                    background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <BarChart3 size={24} color="var(--muted)" />
+                  </div>
+                  <div>
+                    <h2 style={{ marginBottom: '6px' }}>No Data Available</h2>
+                    <p style={{ color: 'var(--muted)', fontSize: '13px', maxWidth: '360px', margin: '0 auto' }}>
+                      Select a model from the registry and run an evaluation to generate performance analytics.
+                    </p>
+                  </div>
+                  {selectedModel && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleEvaluate}
+                      disabled={isEvaluating}
+                      style={{ marginTop: '4px' }}
+                    >
+                      <Play size={13} />
+                      Evaluate {selectedModel}
+                    </button>
+                  )}
+                </div>
+              )}
+              {results && (() => {
+                const b = results.metrics.baseline;
+                let s = results.metrics.scari;
+                let bestModelName = "SCARI";
+                if (results.metrics.models && Object.keys(results.metrics.models).length > 0) {
+                  const m = results.metrics.models;
+                  bestModelName = Object.keys(m).reduce((best, curr) =>
+                    m[curr].total_power_consumption < m[best].total_power_consumption ? curr : best
+                  );
+                  s = m[bestModelName];
+                }
+                if (!s) return null;
+                const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
+                const metrics = [
+                  {
+                    label: 'Best Power Reduction',
+                    value: `${(energySavings * 100).toFixed(1)}%`,
+                    icon: TrendingDown,
+                    color: 'var(--success)',
+                    desc: `vs baseline (${bestModelName})`
+                  },
+                  {
+                    label: `Best PUE (${bestModelName})`,
+                    value: s.average_pue.toFixed(3),
+                    icon: Zap,
+                    color: 'var(--accent)',
+                    desc: `Baseline PUE: ${b.average_pue.toFixed(3)}`
+                  },
+                  {
+                    label: 'Avg Temperature',
+                    value: `${s.average_temperature.toFixed(1)}°C`,
+                    icon: ThermometerSun,
+                    color: s.average_temperature > 55 ? 'var(--danger)' : 'var(--text)',
+                    desc: `Max: ${s.max_temperature.toFixed(1)}°C`
+                  },
+                  {
+                    label: 'Safety Violations',
+                    value: s.safety_violations,
+                    icon: Shield,
+                    color: s.safety_violations === 0 ? 'var(--success)' : 'var(--danger)',
+                    desc: s.safety_violations === 0 ? 'Operating safely' : 'Thermal limits exceeded'
+                  }
+                ];
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '32px' }}>
+                    {metrics.map((m, i) => (
+                      <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
+                          <m.icon size={14} color={m.color} />
+                          <span className="text-label">{m.label}</span>
+                        </div>
+                        <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
+                          {m.value}
+                        </div>
+                        <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
+                      </div>
+                    ))}
+                    <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', background: 'rgba(var(--accent-rgb), 0.03)', border: '1px dashed var(--border)' }}>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                        <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
+                        <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
+                          <strong>Note on Projections:</strong> Sustainability metrics and yearly savings are linear extrapolations based on the simulation snapshot. Real-world performance may vary due to seasonality and non-linear data center loads.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                )}
-                <div style={{ 
-                  fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)',
-                  maxHeight: '80px', overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.5,
-                  padding: '10px 12px', background: 'var(--surface-raised)', borderRadius: 'var(--radius)',
-                  border: '1px solid var(--border)'
-                }}>
-                  {isEvaluating ? (evalLog || '> Evaluation active…') : (lastLog || '> Booting compute kernels…')}
-                </div>
-              </div>
-            )}
-
-            {/* Empty State */}
-            {!results && !isEvaluating && (
-              <div className="card" style={{ 
-                display: 'flex', flexDirection: 'column', alignItems: 'center', 
-                gap: '20px', padding: '80px 40px', textAlign: 'center' 
-              }}>
-                <div style={{ 
-                  width: '56px', height: '56px', borderRadius: '50%', 
-                  background: 'var(--surface-raised)', border: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                  <BarChart3 size={24} color="var(--muted)" />
-                </div>
+                );
+              })()}
+              {results && (
                 <div>
-                  <h2 style={{ marginBottom: '6px' }}>No Data Available</h2>
-                  <p style={{ color: 'var(--muted)', fontSize: '13px', maxWidth: '360px', margin: '0 auto' }}>
-                    Select a model from the registry and run an evaluation to generate performance analytics.
-                  </p>
-                </div>
-                {selectedModel && (
-                  <button 
-                    className="btn btn-primary"
-                    onClick={handleEvaluate}
-                    disabled={isEvaluating}
-                    style={{ marginTop: '4px' }}
-                  >
-                    <Play size={13} />
-                    Evaluate {selectedModel}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Metrics Grid */}
-            {results && (() => {
-              const b = results.metrics.baseline;
-              const s = results.metrics.scari;
-              const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
-              
-              const metrics = [
-                { 
-                  label: 'Power Reduction', 
-                  value: `${(energySavings * 100).toFixed(1)}%`, 
-                  icon: TrendingDown, 
-                  color: 'var(--success)',
-                  desc: 'vs baseline PID controller'
-                },
-                { 
-                  label: 'Average PUE', 
-                  value: s.average_pue.toFixed(3), 
-                  icon: Zap, 
-                  color: 'var(--accent)',
-                  desc: `Baseline: ${b.average_pue.toFixed(3)}`
-                },
-                { 
-                  label: 'Avg Temperature', 
-                  value: `${s.average_temperature.toFixed(1)}°C`, 
-                  icon: ThermometerSun, 
-                  color: s.average_temperature > 55 ? 'var(--danger)' : 'var(--text)',
-                  desc: `Max: ${s.max_temperature.toFixed(1)}°C`
-                },
-                { 
-                  label: 'Safety Violations', 
-                  value: s.safety_violations, 
-                  icon: Shield, 
-                  color: s.safety_violations === 0 ? 'var(--success)' : 'var(--danger)',
-                  desc: s.safety_violations === 0 ? 'Operating within limits' : 'Thermal exceedances'
-                }
-              ];
-              
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '32px' }}>
-                  {metrics.map((m, i) => (
-                    <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
-                        <m.icon size={14} color={m.color} />
-                        <span className="text-label">{m.label}</span>
-                      </div>
-                      <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
-                        {m.value}
-                      </div>
-                      <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div className="card-title" style={{ margin: 0 }}>Comparative Analysis</div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button className="btn btn-outline btn-sm" onClick={() => setResults(null)}>
+                        <RefreshCw size={12} />
+                        New Analysis
+                      </button>
+                      <button className="btn btn-primary btn-sm" onClick={downloadAllCharts}>
+                        <Download size={12} />
+                        Export All
+                      </button>
                     </div>
-                  ))}
-                  <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', background: 'rgba(var(--accent-rgb), 0.03)', border: '1px dashed var(--border)' }}>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                      <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
-                      <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
-                        <strong>Note on Projections:</strong> Sustainability metrics and yearly savings are linear extrapolations based on the simulation snapshot. Real-world performance may vary due to seasonality and non-linear data center loads.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
+                    {results.images.map((img, i) => {
+                      const label = getChartLabel(img);
+                      return (
+                        <div key={i} className="card-chart animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
+                          <div className="chart-header">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div>
+                                <div className="chart-title">{label.title}</div>
+                                <div className="chart-desc">{label.desc}</div>
+                              </div>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => downloadChart(img, `scari_${label.title.toLowerCase().replace(/\s/g, '_')}.png`)}
+                                title="Download chart"
+                                style={{ marginLeft: '8px', flexShrink: 0 }}
+                              >
+                                <Download size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <img
+                            src={`${API_BASE}${img}?t=${Date.now()}`}
+                            alt={label.title}
+                            className="chart-img"
+                            draggable={false}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {results?.sustainability && (
+                <section className="animate-fade-in" style={{ marginTop: '40px' }}>
+                  <div className="card-title">
+                    <Leaf size={11} />
+                    Environmental Impact
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                    <div className="metric-card" style={{ borderLeft: '3px solid var(--success)' }}>
+                      <span className="text-label">Projected Annual Savings</span>
+                      <div className="metric-value" style={{ color: 'var(--success)', fontSize: '22px', marginTop: '6px' }}>
+                        €{results.sustainability.projected_yearly_savings_eur.toLocaleString()}
+                      </div>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                        At €{results.sustainability.market_data.price_eur_kwh}/kWh industrial
+                      </p>
+                    </div>
+                    <div className="metric-card" style={{ borderLeft: '3px solid var(--accent)' }}>
+                      <span className="text-label">CO₂ Offset (Yearly)</span>
+                      <div className="metric-value" style={{ color: 'var(--accent)', fontSize: '22px', marginTop: '6px' }}>
+                        {results.sustainability.projected_yearly_co2_kg >= 1000
+                          ? `${(results.sustainability.projected_yearly_co2_kg / 1000).toFixed(1)} t`
+                          : `${results.sustainability.projected_yearly_co2_kg.toLocaleString()} kg`}
+                      </div>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                        Infrastructure carbon reduction
+                      </p>
+                    </div>
+                    <div className="metric-card" style={{ borderLeft: '3px solid var(--text-secondary)' }}>
+                      <span className="text-label">Forest Equivalent</span>
+                      <div className="metric-value" style={{ fontSize: '22px', marginTop: '6px' }}>
+                        {results.sustainability.trees_equivalent.toLocaleString()}
+                      </div>
+                      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+                        Mature trees (absorption equiv.)
                       </p>
                     </div>
                   </div>
-                </div>
-              );
-            })()}
-
-            {/* Charts — with titles and proper download */}
-            {results && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <div className="card-title" style={{ margin: 0 }}>Comparative Analysis</div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => setResults(null)}>
-                      <RefreshCw size={12} />
-                      New Analysis
-                    </button>
-                    <button className="btn btn-primary btn-sm" onClick={downloadAllCharts}>
-                      <Download size={12} />
-                      Export All
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '16px' }}>
-                  {results.images.map((img, i) => {
-                    const label = getChartLabel(img);
-                    return (
-                      <div key={i} className="card-chart animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
-                        <div className="chart-header">
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                              <div className="chart-title">{label.title}</div>
-                              <div className="chart-desc">{label.desc}</div>
-                            </div>
-                            <button 
-                              className="btn btn-ghost btn-sm"
-                              onClick={() => downloadChart(img, `scari_${label.title.toLowerCase().replace(/\s/g, '_')}.png`)}
-                              title="Download chart"
-                              style={{ marginLeft: '8px', flexShrink: 0 }}
-                            >
-                              <Download size={13} />
-                            </button>
-                          </div>
-                        </div>
-                        <img 
-                          src={`${API_BASE}${img}?t=${Date.now()}`} 
-                          alt={label.title}
-                          className="chart-img"
-                          draggable={false}
-                        />
-                      </div>
+                </section>
+              )}
+              {results?.metrics?.decisions && (() => {
+                let decisionsList = results.metrics.decisions;
+                let traceTitle = "Decision Trace";
+                if (!Array.isArray(decisionsList)) {
+                  let bestModel = Object.keys(decisionsList)[0];
+                  if (results.metrics.models && Object.keys(results.metrics.models).length > 0) {
+                    const m = results.metrics.models;
+                    bestModel = Object.keys(m).reduce((best, curr) =>
+                      m[curr]?.total_power_consumption < m[best]?.total_power_consumption ? curr : best
                     );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Sustainability */}
-            {results?.sustainability && (
-              <section className="animate-fade-in" style={{ marginTop: '40px' }}>
-                <div className="card-title">
-                  <Leaf size={11} />
-                  Environmental Impact
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-                  <div className="metric-card" style={{ borderLeft: '3px solid var(--success)' }}>
-                    <span className="text-label">Projected Annual Savings</span>
-                    <div className="metric-value" style={{ color: 'var(--success)', fontSize: '22px', marginTop: '6px' }}>
-                      €{results.sustainability.projected_yearly_savings_eur.toLocaleString()}
+                  }
+                  decisionsList = decisionsList[bestModel];
+                  traceTitle = `Decision Trace (${bestModel})`;
+                }
+                if (!decisionsList || decisionsList.length === 0) return null;
+                return (
+                  <section className="animate-fade-in" style={{ marginTop: '40px' }}>
+                    <div className="card-title">
+                      <Activity size={11} />
+                      {traceTitle}
                     </div>
-                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
-                      At €{results.sustainability.market_data.price_eur_kwh}/kWh industrial
-                    </p>
-                  </div>
-                  
-                  <div className="metric-card" style={{ borderLeft: '3px solid var(--accent)' }}>
-                    <span className="text-label">CO₂ Offset (Yearly)</span>
-                    <div className="metric-value" style={{ color: 'var(--accent)', fontSize: '22px', marginTop: '6px' }}>
-                      {results.sustainability.projected_yearly_co2_kg >= 1000
-                        ? `${(results.sustainability.projected_yearly_co2_kg / 1000).toFixed(1)} t`
-                        : `${results.sustainability.projected_yearly_co2_kg.toLocaleString()} kg`}
-                    </div>
-                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
-                      Infrastructure carbon reduction
-                    </p>
-                  </div>
-                  
-                  <div className="metric-card" style={{ borderLeft: '3px solid var(--text-secondary)' }}>
-                    <span className="text-label">Forest Equivalent</span>
-                    <div className="metric-value" style={{ fontSize: '22px', marginTop: '6px' }}>
-                      {results.sustainability.trees_equivalent.toLocaleString()}
-                    </div>
-                    <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
-                      Mature trees (absorption equiv.)
-                    </p>
-                  </div>
-                </div>
-              </section>
-            )}
-
-            {/* Decision Trace */}
-            {results?.metrics?.decisions && (
-              <section className="animate-fade-in" style={{ marginTop: '40px' }}>
-                <div className="card-title">
-                  <Activity size={11} />
-                  Decision Trace
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '16px' }}>
-                  {/* Timeline */}
-                  <div className="card" style={{ maxHeight: '560px', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
-                    <div className="card-header" style={{ padding: '14px 16px' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <History size={13} /> Steps
-                      </h3>
-                      <span className="badge">{results.metrics.decisions.length}</span>
-                    </div>
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
-                      {results.metrics.decisions.map((d, i) => (
-                        <div 
-                          key={i} 
-                          className={`decision-item ${selectedDecision?.step === d.step ? 'active' : ''}`}
-                          onClick={() => setSelectedDecision(d)}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 600, fontSize: '12px' }}>Step {d.step}</span>
-                            <span style={{
-                              fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)',
-                              color: d.avg_temp > 60 ? 'var(--danger)' : d.avg_temp > 50 ? 'var(--warning)' : 'var(--success)'
-                            }}>
-                              {d.avg_temp.toFixed(1)}°C
-                            </span>
-                          </div>
-                          <div style={{ marginTop: '6px' }} className="progress-track">
-                            <div className="progress-fill" style={{ 
-                              width: `${d.confidence * 100}%`, 
-                              background: selectedDecision?.step === d.step ? 'var(--accent)' : 'var(--border-strong)'
-                            }} />
-                          </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '16px' }}>
+                      <div className="card" style={{ maxHeight: '560px', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+                        <div className="card-header" style={{ padding: '14px 16px' }}>
+                          <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <History size={13} /> Steps
+                          </h3>
+                          <span className="badge">{decisionsList.length}</span>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Detail panel */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {selectedDecision ? (
-                      <>
-                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                          <div className="card-header" style={{ padding: '14px 16px' }}>
-                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <ChevronRight size={13} /> Control Reasoning
-                            </h3>
-                            <span className="badge badge-accent">
-                              {(selectedDecision.confidence * 100).toFixed(0)}% conf.
-                            </span>
-                          </div>
-                          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {selectedDecision.reasoning.map((r, i) => (
-                              <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                                <ChevronRight size={12} color="var(--muted)" style={{ marginTop: '3px', flexShrink: 0 }} />
-                                <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>{r}</p>
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
+                          {decisionsList.map((d, i) => (
+                            <div
+                              key={i}
+                              className={`decision-item ${selectedDecision?.step === d.step ? 'active' : ''}`}
+                              onClick={() => setSelectedDecision(d)}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, fontSize: '12px' }}>Step {d.step}</span>
+                                <span style={{
+                                  fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-mono)',
+                                  color: d.avg_temp > 60 ? 'var(--danger)' : d.avg_temp > 50 ? 'var(--warning)' : 'var(--success)'
+                                }}>
+                                  {d.avg_temp.toFixed(1)}°C
+                                </span>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                          <div className="card-header" style={{ padding: '14px 16px' }}>
-                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <BarChart size={13} /> Input Attribution
-                            </h3>
-                          </div>
-                          <div style={{ padding: '16px' }}>
-                            <p className="text-label" style={{ marginBottom: '14px' }}>
-                              Influence on cooling decision
-                            </p>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                              {Object.entries(selectedDecision.feature_importance).map(([feature, value], i) => (
-                                <div key={i}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '5px' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>{feature}</span>
-                                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{(value * 100).toFixed(1)}%</span>
-                                  </div>
-                                  <div className="progress-track" style={{ height: '5px' }}>
-                                    <div className="progress-fill" style={{ 
-                                      width: `${Math.min(100, value * 100 * 3)}%`,
-                                      background: 'var(--accent)',
-                                      transition: 'width 0.4s ease'
-                                    }} />
-                                  </div>
-                                </div>
-                              ))}
+                              <div style={{ marginTop: '6px' }} className="progress-track">
+                                <div className="progress-fill" style={{
+                                  width: `${d.confidence * 100}%`,
+                                  background: selectedDecision?.step === d.step ? 'var(--accent)' : 'var(--border-strong)'
+                                }} />
+                              </div>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      </>
-                    ) : (
-                      <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
-                        <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Select a step to view control reasoning</p>
                       </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
-          </>
-        )}
-
-        {/* ── CALCULATOR TAB ────────────────────────────────── */}
-        {mainTab === 'calculator' && (
-          <DataCenterCalculator onToast={addToast} evalResults={results} />
-        )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {selectedDecision ? (
+                          <>
+                            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                              <div className="card-header" style={{ padding: '14px 16px' }}>
+                                <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <ChevronRight size={13} /> Control Reasoning
+                                </h3>
+                                <span className="badge badge-accent">
+                                  {(selectedDecision.confidence * 100).toFixed(0)}% conf.
+                                </span>
+                              </div>
+                              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {selectedDecision.reasoning.map((r, i) => (
+                                  <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                    <ChevronRight size={12} color="var(--muted)" style={{ marginTop: '3px', flexShrink: 0 }} />
+                                    <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>{r}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                              <div className="card-header" style={{ padding: '14px 16px' }}>
+                                <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <BarChart size={13} /> Input Attribution
+                                </h3>
+                              </div>
+                              <div style={{ padding: '16px' }}>
+                                <p className="text-label" style={{ marginBottom: '14px' }}>
+                                  Influence on cooling decision
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                  {Object.entries(selectedDecision.feature_importance).map(([feature, value], i) => (
+                                    <div key={i}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '5px' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>{feature}</span>
+                                        <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{(value * 100).toFixed(1)}%</span>
+                                      </div>
+                                      <div className="progress-track" style={{ height: '5px' }}>
+                                        <div className="progress-fill" style={{
+                                          width: `${Math.min(100, value * 100 * 3)}%`,
+                                          background: 'var(--accent)',
+                                          transition: 'width 0.4s ease'
+                                        }} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '200px' }}>
+                            <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Select a step to view control reasoning</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                );
+              })()}
+            </>
+          )}
+          {mainTab === 'calculator' && (
+            <DataCenterCalculator onToast={addToast} evalResults={results} />
+          )}
+          {mainTab === 'global' && (
+            <GlobalEmissions />
+          )}
         </div>
       </main>
-
-
-      {/* Toasts */}
+      {isCompareModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content animate-slide-up" style={{ width: '400px' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <GitMerge size={16} color="var(--accent)" />
+                Multi-Model Comparison
+              </h3>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                Select exactly one model of each cooling type to compare their efficiency and thermal safety.
+              </p>
+              <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ color: 'var(--text)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }}>1. Air Cooling Model</label>
+                <select
+                  style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  value={compareSelections.air}
+                  onChange={e => setCompareSelections(p => ({ ...p, air: e.target.value }))}
+                >
+                  <option value="">-- Select Air Model --</option>
+                  {models.map(m => <option key={`air-${m}`} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ color: 'var(--text)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }}>2. Liquid Cooling Model</label>
+                <select
+                  style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  value={compareSelections.liquid}
+                  onChange={e => setCompareSelections(p => ({ ...p, liquid: e.target.value }))}
+                >
+                  <option value="">-- Select Liquid Model --</option>
+                  {models.map(m => <option key={`liq-${m}`} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ color: 'var(--text)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase' }}>3. Hybrid Cooling Model</label>
+                <select
+                  style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  value={compareSelections.hybrid}
+                  onChange={e => setCompareSelections(p => ({ ...p, hybrid: e.target.value }))}
+                >
+                  <option value="">-- Select Hybrid Model --</option>
+                  {models.map(m => <option key={`hyb-${m}`} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', padding: '16px', marginTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button className="btn btn-outline" onClick={() => setIsCompareModalOpen(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={handleRunComparison}
+                disabled={!compareSelections.air || !compareSelections.liquid || !compareSelections.hybrid}
+              >
+                Start Comparison
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="toast-container">
         {toasts.map(t => <Toast key={t.id} {...t} />)}
       </div>
     </div>
   );
 };
-
 export default App;

@@ -1,389 +1,165 @@
-# src/utils/visualization.py
-"""
-Advanced visualization module for S.C.A.R.I performance analysis.
-Creates professional, publication-ready plots and dashboards.
-"""
-
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Any
 import seaborn as sns
-
-# Professional clean style
 plt.rcParams['figure.dpi'] = 150
 plt.rcParams['savefig.dpi'] = 300
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans']
 plt.rcParams['font.size'] = 10
 
-
 class PerformanceVisualizer:
-    """Creates comprehensive performance comparison visualizations."""
-    
-    def __init__(self, output_dir: str = "outputs"):
-        """Initialize visualizer with output directory."""
+
+    def __init__(self, output_dir: str='outputs'):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Professional, clean colour palette — works on both light and dark UIs
-        self.colors = {
-            'baseline': '#64748b',   # Slate — muted, secondary
-            'scari':    '#0d9488',   # Teal — primary, optimised
-            'savings':  '#1d4ed8',   # Indigo-blue for savings
-            'warning':  '#d97706',   # Amber
-            'danger':   '#dc2626',   # Red
-            'safe':     '#16a34a',   # Green
-            'background': '#ffffff', # Clean white
-            'text':     '#111111',   # Near-black text
-            'grid':     '#e5e7eb'    # Light grey grid
-        }
-        
-        # White-background professional style
+        self.colors = {'baseline': '#64748b', 'scari': '#0d9488', 'air': '#0ea5e9', 'water': '#3b82f6', 'hybrid': '#8b5cf6', 'savings': '#1d4ed8', 'warning': '#d97706', 'danger': '#dc2626', 'safe': '#16a34a', 'background': '#ffffff', 'text': '#111111', 'grid': '#e5e7eb'}
+        self.model_colors = [self.colors['air'], self.colors['water'], self.colors['hybrid'], '#f59e0b', '#ec4899', '#14b8a6']
         plt.style.use('default')
-        plt.rcParams.update({
-            'figure.facecolor': self.colors['background'],
-            'axes.facecolor':   self.colors['background'],
-            'axes.edgecolor':   '#d1d5db',
-            'axes.labelcolor':  self.colors['text'],
-            'xtick.color':      '#6b7280',
-            'ytick.color':      '#6b7280',
-            'text.color':       self.colors['text'],
-            'grid.color':       self.colors['grid'],
-            'grid.alpha':       0.6,
-            'figure.dpi':       150,
-            'savefig.dpi':      300,
-            'font.family':      'sans-serif',
-            'font.sans-serif':  ['Arial', 'DejaVu Sans'],
-            'font.size':        10,
-            'axes.spines.top':  False,
-            'axes.spines.right': False
-        })
-    
-    def create_comprehensive_dashboard(
-        self,
-        baseline_metrics: Dict[str, Any],
-        model_metrics: Dict[str, Any],
-        baseline_data: Dict[str, List[float]],
-        model_data: Dict[str, List[float]],
-        save_individual: bool = True
-    ) -> None:
-        """
-        Create a comprehensive performance dashboard and optionally individual charts.
-        """
-        # 1. First, generate individual high-res charts with clear titles
-        if save_individual:
-            self._save_individual_charts(baseline_metrics, model_metrics, baseline_data, model_data)
+        plt.rcParams.update({'figure.facecolor': self.colors['background'], 'axes.facecolor': self.colors['background'], 'axes.edgecolor': '#d1d5db', 'axes.labelcolor': self.colors['text'], 'xtick.color': '#6b7280', 'ytick.color': '#6b7280', 'text.color': self.colors['text'], 'grid.color': self.colors['grid'], 'grid.alpha': 0.6})
 
-        # 2. Generate the summary dashboard
+    def _get_color(self, model_name: str, i: int) -> str:
+        name_lower = model_name.lower()
+        if 'air' in name_lower:
+            return self.colors['air']
+        if 'water' in name_lower or 'liquid' in name_lower:
+            return self.colors['water']
+        if 'hybrid' in name_lower:
+            return self.colors['hybrid']
+        return self.model_colors[i % len(self.model_colors)]
+
+    def create_comprehensive_dashboard(self, baseline_metrics: Dict[str, Any], model_metrics_dict: Dict[str, Dict[str, Any]], baseline_data: Dict[str, List[float]], model_data_dict: Dict[str, Dict[str, List[float]]], save_individual: bool=True) -> None:
+        if save_individual:
+            self._save_individual_charts(baseline_metrics, model_metrics_dict, baseline_data, model_data_dict)
         fig = plt.figure(figsize=(20, 12))
         gs = gridspec.GridSpec(3, 3, figure=fig, hspace=0.3, wspace=0.3)
-        
-        # ... (rest of the dashboard logic remains but we use the shared plotting methods)
-        self._plot_power_comparison(fig.add_subplot(gs[0:2, 0]), baseline_data, model_data)
-        self._plot_temperature_comparison(fig.add_subplot(gs[0:2, 1]), baseline_data, model_data)
-        self._plot_cumulative_savings(fig.add_subplot(gs[0:2, 2]), baseline_data, model_data)
-        self._plot_pue_comparison(fig.add_subplot(gs[2, 0]), baseline_metrics, model_metrics)
-        self._plot_efficiency_metrics(fig.add_subplot(gs[2, 1]), baseline_metrics, model_metrics)
-        self._plot_summary_card(fig.add_subplot(gs[2, 2]), baseline_metrics, model_metrics)
-        
-        # Main title
-        savings_pct = ((baseline_metrics['total_power_consumption'] - 
-                       model_metrics['total_power_consumption']) / 
-                       baseline_metrics['total_power_consumption'] * 100)
-        
-        title_color = self.colors['safe'] if savings_pct > 0 else self.colors['danger']
-        fig.suptitle(
-            f'SCARI Performance Report | Total Savings: {savings_pct:.1f}%',
-            fontsize=22, fontweight='bold', color=title_color
-        )
-        
-        plt.savefig(self.output_dir / 'comprehensive_dashboard.png', 
-                   bbox_inches='tight', pad_inches=0.2, facecolor=self.colors['background'], dpi=300)
+        self._plot_power_comparison(fig.add_subplot(gs[0:2, 0]), baseline_data, model_data_dict)
+        self._plot_temperature_comparison(fig.add_subplot(gs[0:2, 1]), baseline_data, model_data_dict)
+        self._plot_cumulative_savings(fig.add_subplot(gs[0:2, 2]), baseline_data, model_data_dict)
+        self._plot_pue_comparison(fig.add_subplot(gs[2, 0]), baseline_metrics, model_metrics_dict)
+        self._plot_efficiency_metrics(fig.add_subplot(gs[2, 1]), baseline_metrics, model_metrics_dict)
+        self._plot_summary_card(fig.add_subplot(gs[2, 2]), baseline_metrics, model_metrics_dict)
+        fig.suptitle('SCARI Comparative Performance Report', fontsize=22, fontweight='bold', color=self.colors['text'])
+        plt.savefig(self.output_dir / 'comprehensive_dashboard.png', bbox_inches='tight', pad_inches=0.2, facecolor=self.colors['background'], dpi=300)
         plt.close()
 
-    def _save_individual_charts(self, bm, mm, bd, md):
-        """Saves each metric as a standalone, clear image."""
-        plots = [
-            (self._plot_power_comparison, (bd, md), '1_electricity_usage.png'),
-            (self._plot_temperature_comparison, (bd, md), '2_thermal_safety.png'),
-            (self._plot_cumulative_savings, (bd, md), '3_total_savings.png'),
-            (self._plot_pue_comparison, (bm, mm), '4_efficiency_score.png'),
-        ]
-        
+    def _save_individual_charts(self, bm, mm_dict, bd, md_dict):
+        plots = [(self._plot_power_comparison, (bd, md_dict), '1_electricity_usage.png'), (self._plot_temperature_comparison, (bd, md_dict), '2_thermal_safety.png'), (self._plot_cumulative_savings, (bd, md_dict), '3_total_savings.png'), (self._plot_pue_comparison, (bm, mm_dict), '4_efficiency_score.png')]
         for func, args, filename in plots:
             fig, ax = plt.subplots(figsize=(10, 6))
-            # Ensure separate figures also get the dark treatment
             fig.patch.set_facecolor(self.colors['background'])
             ax.set_facecolor(self.colors['background'])
-            
             func(ax, *args)
-            plt.savefig(self.output_dir / filename, bbox_inches='tight', pad_inches=0.2,
-                       facecolor=self.colors['background'], dpi=300)
+            plt.savefig(self.output_dir / filename, bbox_inches='tight', pad_inches=0.2, facecolor=self.colors['background'], dpi=300)
             plt.close()
-    
-    def _plot_power_comparison(self, ax, baseline_data, model_data):
-        """Plot detailed power consumption comparison."""
+
+    def _plot_power_comparison(self, ax, baseline_data, model_data_dict):
         time = np.arange(len(baseline_data['powers']))
-        
-        # Plot both lines
-        ax.plot(time, baseline_data['powers'], 
-               label='Baseline Controller', color=self.colors['baseline'],
-               linewidth=2, alpha=0.8)
-        ax.plot(time, model_data['powers'], 
-               label='S.C.A.R.I Agent', color=self.colors['scari'],
-               linewidth=2, alpha=0.8)
-        
-        # Highlight savings regions
-        savings_mask = np.array(model_data['powers']) < np.array(baseline_data['powers'])
-        if savings_mask.any():
-            ax.fill_between(time, baseline_data['powers'], model_data['powers'],
-                           where=savings_mask, color=self.colors['savings'],
-                           alpha=0.3, label='Energy Saved')
-        
-        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
+        ax.plot(time, baseline_data['powers'], label='Baseline (PID)', color=self.colors['baseline'], linewidth=2.5, alpha=0.9)
+        for i, (m_name, m_data) in enumerate(model_data_dict.items()):
+            c = self._get_color(m_name, i)
+            ax.plot(time, m_data['powers'], label=f'{m_name}', color=c, linewidth=1.5, alpha=0.8)
+        ax.set_xlabel('Time Steps', fontweight='regular')
         ax.set_ylabel('Electricity Consumption (Watts)', fontweight='bold')
-        ax.set_title('Electricity Usage: SCARI vs Standard', fontsize=14, fontweight='bold')
+        ax.set_title('Power Load Comparison', fontsize=14, fontweight='bold')
         ax.legend(loc='upper right', framealpha=0.9)
         ax.grid(True, alpha=0.3)
-        
-        # Add average lines
-        baseline_avg = np.mean(baseline_data['powers'])
-        model_avg = np.mean(model_data['powers'])
-        
-        # Annotations (Clearer for beginners)
-        ax.text(0.02, 0.98, f'Standard System: {baseline_avg:.0f}W (Average)',
-               transform=ax.transAxes, va='top', fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=self.colors['baseline'], alpha=0.2))
-        ax.text(0.02, 0.92, f'SCARI AI System: {model_avg:.0f}W (Average)',
-               transform=ax.transAxes, va='top', fontsize=9,
-               bbox=dict(boxstyle='round', facecolor=self.colors['scari'], alpha=0.2))
-    
-    def _plot_temperature_comparison(self, ax, baseline_data, model_data):
-        """Plot temperature management strategies."""
-        time = np.arange(len(baseline_data['temps']))
-        
-        # Plot temperatures
-        ax.plot(time, baseline_data['temps'],
-               label='Baseline', color=self.colors['baseline'],
-               linewidth=2, alpha=0.8)
-        ax.plot(time, model_data['temps'],
-               label='S.C.A.R.I', color=self.colors['scari'],
-               linewidth=2, alpha=0.8)
-        
-        # Safe operating zones (aligned with config safety limits)
-        ax.axhspan(20, 55, alpha=0.08, color=self.colors['safe'], label='Optimal (< 55°C)')
-        ax.axhspan(55, 65, alpha=0.08, color=self.colors['warning'], label='Caution (55-65°C)')
-        ax.axhspan(65, 100, alpha=0.08, color=self.colors['danger'], label='Danger (> 65°C)')
-        ax.axhline(60, color=self.colors['danger'], linestyle='--', linewidth=1, alpha=0.5, label='Safety Limit')
 
-        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
+    def _plot_temperature_comparison(self, ax, baseline_data, model_data_dict):
+        time = np.arange(len(baseline_data['temps']))
+        ax.plot(time, baseline_data['temps'], label='Baseline', color=self.colors['baseline'], linewidth=2.5, alpha=0.9)
+        for i, (m_name, m_data) in enumerate(model_data_dict.items()):
+            c = self._get_color(m_name, i)
+            ax.plot(time, m_data['temps'], label=f'{m_name}', color=c, linewidth=1.5, alpha=0.8)
+        ax.axhspan(20, 55, alpha=0.08, color=self.colors['safe'], label='Optimal (< 55°C)')
+        ax.axhspan(55, 60, alpha=0.08, color=self.colors['warning'], label='Sweet Spot (55-60°C)')
+        ax.axhspan(60, 100, alpha=0.08, color=self.colors['danger'], label='Danger (> 60°C)')
+        ax.axhline(60, color=self.colors['danger'], linestyle='--', linewidth=1.5, alpha=0.7, label='Safety Limit (60°C)')
+        ax.set_xlabel('Time Steps', fontweight='regular')
         ax.set_ylabel('Server Temperature (°C)', fontweight='bold')
-        ax.set_title('Thermal Safety: Keeping Servers Cool', fontsize=14, fontweight='bold')
-        ax.legend(loc='upper right', framealpha=0.9, fontsize=8)
+        ax.set_title('Thermal Safety Envelopes', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper left', framealpha=0.9, fontsize=8)
         ax.grid(True, alpha=0.3)
-        # Auto-scale Y to data range with padding
-        all_temps = list(baseline_data['temps']) + list(model_data['temps'])
-        ax.set_ylim(max(20, min(all_temps) - 5), max(all_temps) + 10)
-        
-        # Statistics annotations
-        baseline_avg_temp = np.mean(baseline_data['temps'])
-        model_avg_temp = np.mean(model_data['temps'])
-        ax.text(0.02, 0.98, 
-               f'Baseline: μ={baseline_avg_temp:.1f}°C, σ={np.std(baseline_data["temps"]):.1f}°C',
-               transform=ax.transAxes, va='top', fontsize=8,
-               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        ax.text(0.02, 0.91,
-               f'SCARI: μ={model_avg_temp:.1f}°C, σ={np.std(model_data["temps"]):.1f}°C',
-               transform=ax.transAxes, va='top', fontsize=8,
-               bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    def _plot_cumulative_savings(self, ax, baseline_data, model_data):
-        """Plot cumulative energy savings over time."""
-        baseline_cumsum = np.cumsum(baseline_data['powers']) / 1000.0  # Convert to kW
-        model_cumsum = np.cumsum(model_data['powers']) / 1000.0
-        savings_cumsum = baseline_cumsum - model_cumsum
-        
-        time = np.arange(len(savings_cumsum))
-        
-        # Plot cumulative savings
-        color = self.colors['safe'] if savings_cumsum[-1] > 0 else self.colors['danger']
-        ax.plot(time, savings_cumsum, color=color, linewidth=3)
-        ax.fill_between(time, 0, savings_cumsum, alpha=0.3, color=color)
-        
+        all_temps = list(baseline_data['temps'])
+        for v in model_data_dict.values():
+            all_temps.extend(list(v['temps']))
+        ax.set_ylim(max(20, min(all_temps) - 5), max(all_temps) + 5)
+
+    def _plot_cumulative_savings(self, ax, baseline_data, model_data_dict):
+        b_cumsum = np.cumsum(baseline_data['powers']) / 1000.0
+        time = np.arange(len(b_cumsum))
         ax.axhline(0, color='black', linestyle='-', linewidth=1, alpha=0.3)
-        ax.set_xlabel('Time Steps (Simulation)', fontweight='regular')
-        ax.set_ylabel('Total Energy Saved (kWh)', fontweight='bold')
-        ax.set_title('Money Saved: Cumulative Progress', fontsize=14, fontweight='bold')
+        for i, (m_name, m_data) in enumerate(model_data_dict.items()):
+            m_cumsum = np.cumsum(m_data['powers']) / 1000.0
+            savings = b_cumsum - m_cumsum
+            c = self._get_color(m_name, i)
+            ax.plot(time, savings, label=f'{m_name}', color=c, linewidth=2)
+            if len(model_data_dict) == 1:
+                ax.fill_between(time, 0, savings, alpha=0.15, color=c)
+        ax.set_xlabel('Time Steps', fontweight='regular')
+        ax.set_ylabel('Energy Saved (kWh)', fontweight='bold')
+        ax.set_title('Cumulative Energy Savings vs Baseline', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper left')
         ax.grid(True, alpha=0.3)
-        
-        # Final savings annotation
-        final_savings = savings_cumsum[-1]
-        savings_pct = (final_savings / baseline_cumsum[-1]) * 100 if baseline_cumsum[-1] > 0 else 0
-        
-        ax.text(0.98, 0.98,
-               f'Total Saved: {final_savings:+.2f} kWh\n({savings_pct:+.1f}%)',
-               transform=ax.transAxes, ha='right', va='top',
-               fontsize=11, fontweight='bold',
-               bbox=dict(boxstyle='round', facecolor=color, alpha=0.3))
-    
-    def _plot_pue_comparison(self, ax, baseline_metrics, model_metrics):
-        """Bar chart comparing PUE values."""
-        categories = ['Baseline', 'S.C.A.R.I']
-        pue_values = [
-            baseline_metrics.get('average_pue', 1.0),
-            model_metrics.get('average_pue', 1.0)
-        ]
-        
-        colors = [self.colors['baseline'], self.colors['scari']]
-        bars = ax.bar(categories, pue_values, color=colors, alpha=0.7, edgecolor='black', linewidth=2)
-        
-        # Add reference line for ideal PUE
-        ax.axhline(1.0, color='green', linestyle='--', linewidth=2, 
-                  label='Ideal PUE = 1.0', alpha=0.7)
-        ax.axhline(1.2, color='orange', linestyle='--', linewidth=1.5,
-                  label='Industry Target = 1.2', alpha=0.7)
-        
-        ax.set_ylabel('Efficiency Score (PUE)', fontweight='bold')
-        ax.set_title('How Efficient is the Cooling? (Lower is better)', fontsize=12, fontweight='bold')
-        ax.legend(fontsize=8)
-        # Zoom in on the important range for PUE
-        ax.set_ylim(1.0, max(pue_values) * 1.1)
+
+    def _plot_pue_comparison(self, ax, baseline_metrics, model_metrics_dict):
+        names = ['Baseline'] + list(model_metrics_dict.keys())
+        pue_vals = [baseline_metrics.get('average_pue', 1.0)] + [m.get('average_pue', 1.0) for m in model_metrics_dict.values()]
+        colors = [self.colors['baseline']] + [self._get_color(n, i) for i, n in enumerate(model_metrics_dict.keys())]
+        bars = ax.bar(names, pue_vals, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
+        ax.axhline(1.0, color='green', linestyle='--', linewidth=2, label='Ideal = 1.0', alpha=0.7)
+        ax.axhline(1.2, color='orange', linestyle='--', linewidth=1.5, label='Target = 1.2', alpha=0.7)
+        ax.set_ylabel('PUE Score', fontweight='bold')
+        ax.set_title('PUE Efficiency Comparison', fontsize=12, fontweight='bold')
+        ax.set_ylim(1.0, max(pue_vals) * 1.1)
         ax.grid(axis='y', alpha=0.3)
-        
-        # Add value labels on bars
-        for bar, val in zip(bars, pue_values):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                   f'{val:.3f}',
-                   ha='center', va='bottom', fontweight='bold', fontsize=10)
-    
-    def _plot_efficiency_metrics(self, ax, baseline_metrics, model_metrics):
-        """Horizontal bar chart showing multiple efficiency dimensions."""
-        categories = ['Energy\nEfficiency', 'Thermal\nStability', 
-                     'System\nHealth', 'PUE\nScore']
-        
-        # Normalize metrics to 0-100 scale
-        baseline_scores = [
-            (1.0 - min(1.0, baseline_metrics.get('total_power_consumption', 20e6) / 25e6)) * 100,
-            baseline_metrics.get('thermal_stability', 0.95) * 100,
-            baseline_metrics.get('average_health', 0.99) * 100,
-            max(0, (1.5 - baseline_metrics.get('average_pue', 1.015))) * 100
-        ]
-        
-        model_scores = [
-            (1.0 - min(1.0, model_metrics.get('total_power_consumption', 20e6) / 25e6)) * 100,
-            model_metrics.get('thermal_stability', 0.95) * 100,
-            model_metrics.get('average_health', 0.99) * 100,
-            max(0, (1.5 - model_metrics.get('average_pue', 1.015))) * 100
-        ]
-        
-        y_pos = np.arange(len(categories))
-        bar_height = 0.35
-        
-        # Create horizontal bars
-        ax.barh(y_pos - bar_height/2, baseline_scores, bar_height,
-               label='Baseline', color=self.colors['baseline'], alpha=0.7)
-        ax.barh(y_pos + bar_height/2, model_scores, bar_height,
-               label='S.C.A.R.I', color=self.colors['scari'], alpha=0.7)
-        
+        ax.legend(fontsize=8)
+        for bar, val in zip(bars, pue_vals):
+            ax.text(bar.get_x() + bar.get_width() / 2.0, bar.get_height(), f'{val:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+
+    def _plot_efficiency_metrics(self, ax, baseline_metrics, model_metrics_dict):
+        cats = ['Power\nSavings %', 'Thermal\nStability', 'PUE\nScore']
+        b_pwr = baseline_metrics.get('total_power_consumption', 1)
+
+        def safe_score(val):
+            return 0 if np.isnan(val) else val
+        b_scores = [0, safe_score(baseline_metrics.get('thermal_stability', 0)) * 100, max(0, 1.5 - baseline_metrics.get('average_pue', 1.5)) * 100]
+        y_pos = np.arange(len(cats))
+        num_models = len(model_metrics_dict) + 1
+        bar_height = 0.8 / num_models
+        ax.barh(y_pos - bar_height * num_models / 2, b_scores, bar_height, label='Baseline', color=self.colors['baseline'], alpha=0.8)
+        for i, (m_name, m_met) in enumerate(model_metrics_dict.items()):
+            m_scores = [max(0, (b_pwr - m_met.get('total_power_consumption', b_pwr)) / b_pwr * 100), safe_score(m_met.get('thermal_stability', 0)) * 100, max(0, 1.5 - m_met.get('average_pue', 1.5)) * 100]
+            offset = y_pos - bar_height * num_models / 2 + bar_height * (i + 1)
+            c = self._get_color(m_name, i)
+            ax.barh(offset, m_scores, bar_height, label=m_name, color=c, alpha=0.8)
         ax.set_yticks(y_pos)
-        ax.set_yticklabels(categories, fontsize=9)
+        ax.set_yticklabels(cats, fontsize=9)
         ax.set_xlabel('Score (%)', fontweight='bold')
         ax.set_xlim(0, 100)
-        ax.set_title('Multi-Dimensional Performance', fontsize=12, fontweight='bold')
+        ax.set_title('Cross-Dimensional Metrics', fontsize=12, fontweight='bold')
         ax.legend(loc='lower right', fontsize=8)
         ax.grid(axis='x', alpha=0.3)
-        
-        # Add value labels
-        for i, (b_score, m_score) in enumerate(zip(baseline_scores, model_scores)):
-            ax.text(b_score + 1, i - bar_height/2, f'{b_score:.0f}', 
-                   va='center', fontsize=7)
-            ax.text(m_score + 1, i + bar_height/2, f'{m_score:.0f}',
-                   va='center', fontsize=7)
-    
-    def _plot_summary_card(self, ax, baseline_metrics, model_metrics):
-        """Text summary card with key metrics."""
+
+    def _plot_summary_card(self, ax, baseline_metrics, model_metrics_dict):
         ax.axis('off')
-        
-        # Calculate key differences
-        power_diff = baseline_metrics['total_power_consumption'] - model_metrics['total_power_consumption']
-        power_pct = (power_diff / baseline_metrics['total_power_consumption']) * 100
-        
-        pue_diff = baseline_metrics.get('average_pue', 1.0) - model_metrics.get('average_pue', 1.0)
-        
-        temp_diff = model_metrics['average_temperature'] - baseline_metrics['average_temperature']
-        
-        # Create summary text
-        if power_pct > 0:
-            verdict = "PERFORMANCE IMPROVED"
-            verdict_color = self.colors['safe']
-        elif power_pct > -2:
-            verdict = "MARGINAL PERFORMANCE"
-            verdict_color = self.colors['warning']
-        else:
-            verdict = "PERFORMANCE REGRESSION"
-            verdict_color = self.colors['danger']
-        
-        summary = f"""
-        {verdict}
-        ---------------------------
-        
-        ENERGY SAVINGS
-        • Power Efficiency: {power_pct:+.1f}%
-        • Total Energy Δ: {power_diff/1e6:+.2f} MWh
-        
-        COOLING EFFICIENCY
-        • PUE Improvement: {pue_diff:+.3f}
-        • Final SCARI PUE: {model_metrics.get('average_pue', 1.0):.3f}
-        
-        THERMAL CONTROL
-        • Mean Temp Δ: {temp_diff:+.1f}°C
-        • Max Observed: {model_metrics['max_temperature']:.1f}°C
-        
-        SAFETY & RELIABILITY
-        • Safety Violations: {model_metrics.get('safety_violations', 0)}
-        • Average Health: {model_metrics.get('average_health', 1.0):.4f}
-        """
-        
-        ax.text(0.5, 0.5, summary, transform=ax.transAxes,
-               fontsize=9, ha='center', va='center', family='monospace',
-               bbox=dict(boxstyle='round', facecolor=verdict_color, 
-                        alpha=0.2, edgecolor=verdict_color, linewidth=2))
-    
-    def create_power_breakdown_chart(self, baseline_data, model_data):
-        """Create stacked area chart showing IT vs Cooling power."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-        
-        time = np.arange(len(baseline_data['it_powers']))
-        
-        # Baseline breakdown
-        ax1.fill_between(time, 0, baseline_data['it_powers'],
-                        label='IT Power', color='#FF9999', alpha=0.7)
-        ax1.fill_between(time, baseline_data['it_powers'],
-                        np.array(baseline_data['it_powers']) + np.array(baseline_data['cooling_powers']),
-                        label='Cooling Power', color='#66B2FF', alpha=0.7)
-        ax1.set_xlabel('Time Steps', fontweight='bold')
-        ax1.set_ylabel('Power (W)', fontweight='bold')
-        ax1.set_title('Baseline Power Breakdown', fontsize=14, fontweight='bold')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        # SCARI breakdown
-        ax2.fill_between(time, 0, model_data['it_powers'],
-                        label='IT Power', color='#FF9999', alpha=0.7)
-        ax2.fill_between(time, model_data['it_powers'],
-                        np.array(model_data['it_powers']) + np.array(model_data['cooling_powers']),
-                        label='Cooling Power', color='#66B2FF', alpha=0.7)
-        ax2.set_xlabel('Time Steps', fontweight='bold')
-        ax2.set_ylabel('Power (W)', fontweight='bold')
-        ax2.set_title('S.C.A.R.I Power Breakdown', fontsize=14, fontweight='bold')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(self.output_dir / 'power_breakdown.png', bbox_inches='tight', dpi=300)
-        plt.close()
-        print(f"Power breakdown chart saved to {self.output_dir / 'power_breakdown.png'}")
+        if not model_metrics_dict:
+            return
+        best_name = ''
+        best_savings = -999
+        best_pue = 999
+        b_pwr = baseline_metrics['total_power_consumption']
+        for k, v in model_metrics_dict.items():
+            sav = (b_pwr - v['total_power_consumption']) / b_pwr * 100
+            if sav > best_savings:
+                best_savings = sav
+                best_name = k
+                best_pue = v.get('average_pue', 1.0)
+        summary = f"\n        LEADERBOARD SUMMARY\n        ---------------------------\n        \n        TOP PERFORMER: {best_name.upper()}\n        \n        • Energy Savings: {best_savings:+.1f}%\n        • PUE Efficiency: {best_pue:.3f}\n        \n        MODELS TESTED: {len(model_metrics_dict)}\n        BASELINE PUE : {baseline_metrics.get('average_pue', 1.0):.3f}\n        \n        Note: Deep comparisons are\n        available in the adjacent charts.\n        "
+        ax.text(0.5, 0.5, summary, transform=ax.transAxes, fontsize=10, ha='center', va='center', family='monospace', bbox=dict(boxstyle='round', facecolor=self.colors['scari'], alpha=0.1, edgecolor=self.colors['scari'], linewidth=1))
+
+    def create_power_breakdown_chart(self, baseline_data, model_data_dict):
+        pass
