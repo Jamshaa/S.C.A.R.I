@@ -10,15 +10,15 @@
     "max_temp_change_per_second": 5.0
   },
   "cooling": {
-    "mode": "LIQUID",
+    "mode": "AIR",
     "max_fan_power": 120.0,
     "max_pump_power": 60.0,
     "base_pump_power": 8.0,
     "air_cooling_capacity": 1200.0,
     "liquid_cooling_capacity": 15000.0,
     "natural_convection": 8.0,
-    "capex_per_server": 850,
-    "opex_per_server_year": 120
+    "capex_per_server": 150,
+    "opex_per_server_year": 55
   },
   "reward": {
     "target_temp_min": 18.0,
