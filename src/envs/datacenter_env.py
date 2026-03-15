@@ -17,6 +17,7 @@ class DataCenterEnv(gym.Env):
         self.num_servers = config.environment.num_racks * config.environment.servers_per_rack
         self.rack = Rack(0, self.num_servers, config)
         self.current_loads = np.zeros(self.num_servers)
+        self.current_ambient_temp = float(config.physics.ambient_temp)
         self.step_count = 0
         self.episode_count = 0
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(4 * self.num_servers,), dtype=np.float32)
@@ -37,6 +38,7 @@ class DataCenterEnv(gym.Env):
         self.last_action = None
         self.current_loads = self.np_random.uniform(self.config.environment.min_initial_load, self.config.environment.max_initial_load, self.num_servers).astype(np.float32)
         self.step_count = 0
+        self.current_ambient_temp = self._get_effective_ambient_temp()
         self.episode_count += 1
         self.episode_rewards = []
         self.episode_temps = []
@@ -50,8 +52,9 @@ class DataCenterEnv(gym.Env):
         max_load_delta = self.config.environment.max_load_change_per_step
         load_noise = np.clip(load_noise, -max_load_delta, max_load_delta)
         self.current_loads = np.clip(self.current_loads + load_noise, 0.0, 1.0).astype(np.float32)
+        self.current_ambient_temp = self._get_effective_ambient_temp()
         effective_action, safety_meta = self._apply_safety_override(action)
-        stats = self.rack.update(self.current_loads, effective_action)
+        stats = self.rack.update(self.current_loads, effective_action, ambient_temp=self.current_ambient_temp)
         reward = self._calculate_reward(stats, effective_action)
         temps = self.rack.get_temperatures()
         max_temp = np.max(temps)
@@ -72,6 +75,7 @@ class DataCenterEnv(gym.Env):
             'it_power': float(sum((s['it_power'] for s in stats))),
             'cooling_power': float(sum((s['cooling_power'] for s in stats))),
             'facility_power': float(facility_power),
+            'ambient_temp': float(self.current_ambient_temp),
             'stats': stats,
             'hard_limit': hard_limit,
             'hard_limit_violation': hard_limit_violation,
@@ -83,6 +87,15 @@ class DataCenterEnv(gym.Env):
 
     def _get_hard_limit(self) -> float:
         return float(min(self.config.reward.hard_limit, self.config.physics.max_temp))
+
+    def _get_effective_ambient_temp(self) -> float:
+        variation = max(0.0, self.config.environment.ambient_temp_variation)
+        cycle_steps = max(1, int(self.config.environment.ambient_cycle_steps))
+        if variation <= 0.0 or cycle_steps <= 1:
+            return float(self.config.physics.ambient_temp)
+        phase = 2.0 * np.pi * ((self.step_count % cycle_steps) / cycle_steps)
+        ambient = self.config.physics.ambient_temp + variation * np.sin(phase)
+        return float(np.clip(ambient, self.config.physics.min_temp, self.config.physics.max_temp))
 
     def _apply_safety_override(self, action: np.ndarray) -> Tuple[np.ndarray, Dict[str, float]]:
         if not self.config.environment.safety_override:
@@ -126,7 +139,7 @@ class DataCenterEnv(gym.Env):
         return np.concatenate([norm_temps, loads, health, trends]).astype(np.float32)
 
     def get_raw_observations(self) -> Dict[str, np.ndarray]:
-        return {'temps': self.rack.get_temperatures(), 'loads': self.current_loads.copy(), 'health': np.array([s.health for s in self.rack.servers]), 'power': self.rack.get_total_power()}
+        return {'temps': self.rack.get_temperatures(), 'loads': self.current_loads.copy(), 'health': np.array([s.health for s in self.rack.servers]), 'power': self.rack.get_total_power(), 'ambient_temp': self.current_ambient_temp}
 
     def _calculate_reward(self, stats: List[Dict[str, Any]], actions: np.ndarray) -> float:
         it_power = sum((s['it_power'] for s in stats))

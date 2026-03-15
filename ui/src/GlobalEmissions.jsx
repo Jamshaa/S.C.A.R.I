@@ -131,28 +131,47 @@ const drawBackdrop = (ctx, w, h, timeMs) => {
 
 const drawEmissionPlume = (ctx, px, py, scale, country, timeMs, isSelected) => {
     const intensity = clamp(country.co2 / 5000, 0.08, 1);
-    const plumeHeight = (30 + intensity * 54) * scale;
-    const particleCount = 5 + Math.round(intensity * 6);
-    ctx.strokeStyle = `rgba(255,255,255,${isSelected ? 0.16 : 0.08})`;
+    const plumeHeight = (35 + intensity * 65) * scale;
+    const particleCount = 7 + Math.round(intensity * 10);
+
+    for (let s = 0; s < 3; s++) {
+        const sp = (timeMs * 0.0003 + s * 0.33 + country.lat * 0.005) % 1;
+        const sx = Math.sin(timeMs * 0.0008 + s * 2.1) * (3 + intensity * 5) * scale;
+        const sy = -sp * plumeHeight * 0.5;
+        const sa = (0.02 + intensity * 0.04) * (1 - sp);
+        ctx.fillStyle = `rgba(255,255,255,${sa})`;
+        ctx.beginPath();
+        ctx.ellipse(px + sx, py + sy, (4 + intensity * 8) * scale, (1.5 + intensity * 3) * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.strokeStyle = `rgba(255,255,255,${isSelected ? 0.18 : 0.09})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(px, py - 2 * scale);
-    ctx.quadraticCurveTo(px + 4 * scale, py - plumeHeight * 0.35, px, py - plumeHeight * 0.68);
+    ctx.bezierCurveTo(
+        px + 5 * scale, py - plumeHeight * 0.25,
+        px - 3 * scale, py - plumeHeight * 0.55,
+        px + 2 * scale, py - plumeHeight * 0.78
+    );
     ctx.stroke();
+
     for (let i = 0; i < particleCount; i++) {
-        const phase = (timeMs * 0.00022 + i / particleCount + country.lat * 0.01) % 1;
-        const driftX = Math.sin(timeMs * 0.001 + i * 1.37 + country.lng * 0.03) * (6 + intensity * 12) * scale;
-        const driftY = -phase * plumeHeight;
-        const radius = (2.6 + intensity * 8.2) * (0.45 + (1 - phase)) * scale;
-        const alpha = (0.045 + intensity * 0.16) * (1 - phase);
-        const tone = Math.round(236 - phase * 76);
-        const plume = ctx.createRadialGradient(px + driftX, py + driftY, 0, px + driftX, py + driftY, radius * 2.1);
-        plume.addColorStop(0, `rgba(${tone}, ${tone}, ${tone}, ${alpha + (isSelected ? 0.05 : 0)})`);
-        plume.addColorStop(0.55, `rgba(${tone - 28}, ${tone - 28}, ${tone - 28}, ${alpha * 0.45})`);
+        const phase = (timeMs * 0.00025 + i / particleCount + country.lat * 0.01) % 1;
+        const wanderX = Math.sin(timeMs * 0.0012 + i * 1.37 + country.lng * 0.03) * (8 + intensity * 16) * scale;
+        const wanderY = Math.cos(timeMs * 0.0008 + i * 0.91) * 3 * scale;
+        const driftX = wanderX * phase;
+        const driftY = -phase * plumeHeight + wanderY;
+        const radius = (2.8 + intensity * 9) * (0.4 + (1 - phase) * 0.8) * scale;
+        const alpha = (0.05 + intensity * 0.2) * (1 - phase * phase);
+        const tone = Math.round(240 - phase * 80);
+        const plume = ctx.createRadialGradient(px + driftX, py + driftY, 0, px + driftX, py + driftY, radius * 2.2);
+        plume.addColorStop(0, `rgba(${tone}, ${tone}, ${tone}, ${alpha + (isSelected ? 0.06 : 0)})`);
+        plume.addColorStop(0.45, `rgba(${tone - 20}, ${tone - 20}, ${tone - 20}, ${alpha * 0.5})`);
         plume.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = plume;
         ctx.beginPath();
-        ctx.arc(px + driftX, py + driftY, radius * 2.1, 0, Math.PI * 2);
+        ctx.arc(px + driftX, py + driftY, radius * 2.2, 0, Math.PI * 2);
         ctx.fill();
     }
 };
@@ -271,19 +290,36 @@ const GlobalEmissions = () => {
         }
         ctx.lineWidth = 1.25;
         ALL_CONTINENTS.forEach(cont => {
-            ctx.beginPath();
-            let started = false;
+            const contPoints = [];
+            let allOnFront = true;
             cont.coords.forEach(([lat, lng]) => {
                 let [x, y, z] = latLngTo3D(lat, lng, R);
                 [x, y, z] = rotY(x, y, z, ry);[x, y, z] = rotX(x, y, z, rx);
                 if (z > -10) {
                     const [px, py] = proj(x, y, z, cx, cy);
-                    if (!started) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
-                    started = true;
+                    contPoints.push({ px, py, vis: true });
                 } else {
-                    started = false;
+                    contPoints.push({ px: 0, py: 0, vis: false });
+                    allOnFront = false;
                 }
+            });
+            const visCount = contPoints.filter(p => p.vis).length;
+            if (visCount > 2) {
+                ctx.beginPath();
+                let s = false;
+                contPoints.forEach(p => {
+                    if (p.vis) { if (!s) ctx.moveTo(p.px, p.py); else ctx.lineTo(p.px, p.py); s = true; }
+                    else s = false;
+                });
+                if (allOnFront) ctx.closePath();
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+                ctx.fill();
+            }
+            ctx.beginPath();
+            let started = false;
+            contPoints.forEach(p => {
+                if (p.vis) { if (!started) ctx.moveTo(p.px, p.py); else ctx.lineTo(p.px, p.py); started = true; }
+                else started = false;
             });
             ctx.shadowBlur = 12;
             ctx.shadowColor = 'rgba(255, 255, 255, 0.08)';
@@ -299,45 +335,89 @@ const GlobalEmissions = () => {
             const [px, py, pf] = proj(x, y, z, cx, cy);
             projected.push({ px, py, visible: vis, idx: i, z, scale: pf });
         });
-        projected
+        const visibleSorted = projected
             .filter(point => point.visible)
-            .sort((a, b) => a.z - b.z)
-            .forEach(point => {
-                const country = COUNTRIES[point.idx];
-                const radius = dotR(country.co2, 0.82 + zoomRef.current * 0.26) * point.scale;
-                const [cr, cg, cb] = renewCol(country);
-                const emissionIntensity = getEmissionIntensity(country);
-                const isSelected = selected?.code === country.code;
-                if (country.co2 > 120 || isSelected) {
-                    drawEmissionPlume(ctx, point.px, point.py, point.scale, country, timeMs, isSelected);
-                }
-                const glow = ctx.createRadialGradient(point.px, point.py, 0, point.px, point.py, radius * (isSelected ? 7.5 : 4.5));
-                glow.addColorStop(0, `rgba(${cr},${cg},${cb},${isSelected ? 0.5 : 0.28})`);
-                glow.addColorStop(0.65, `rgba(${cr},${cg},${cb},${isSelected ? 0.12 : 0.08})`);
-                glow.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = glow;
-                ctx.beginPath();
-                ctx.arc(point.px, point.py, radius * (isSelected ? 7.5 : 4.5), 0, Math.PI * 2);
-                ctx.fill();
+            .sort((a, b) => a.z - b.z);
 
-                ctx.fillStyle = `rgba(${cr},${cg},${cb},${isSelected ? 1 : 0.88})`;
+        const topEmitters = [...COUNTRIES].sort((a, b) => b.co2 - a.co2).slice(0, 5).map(c => c.code);
+        const topProjected = visibleSorted.filter(p => topEmitters.includes(COUNTRIES[p.idx].code));
+        if (topProjected.length >= 2) {
+            for (let i = 0; i < topProjected.length - 1; i++) {
+                const a = topProjected[i], b = topProjected[i + 1];
+                const flowPhase = (timeMs * 0.0004 + i * 0.25) % 1;
+                const midX = (a.px + b.px) / 2;
+                const midY = (a.py + b.py) / 2 - 30 * Math.min(a.scale, b.scale);
                 ctx.beginPath();
-                ctx.arc(point.px, point.py, isSelected ? radius * 1.45 : radius, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.strokeStyle = `rgba(255,255,255,${isSelected ? 0.95 : clamp(0.18 + emissionIntensity / 120, 0.2, 0.46)})`;
-                ctx.lineWidth = isSelected ? 1.8 : 0.7;
-                ctx.beginPath();
-                ctx.arc(point.px, point.py, radius + 2.2, 0, Math.PI * 2);
+                ctx.moveTo(a.px, a.py);
+                ctx.quadraticCurveTo(midX, midY, b.px, b.py);
+                ctx.strokeStyle = `rgba(255,255,255,${0.04 + 0.03 * Math.sin(timeMs * 0.002 + i)})`;
+                ctx.lineWidth = 0.6;
+                ctx.setLineDash([4, 8]);
+                ctx.lineDashOffset = -timeMs * 0.03;
                 ctx.stroke();
+                ctx.setLineDash([]);
 
-                if (isSelected || (COUNTRY_LABEL_CODES.has(country.code) && point.scale > 0.62)) {
-                    ctx.fillStyle = 'rgba(255,255,255,0.82)';
-                    ctx.font = `${isSelected ? '700' : '600'} ${isSelected ? 11 : 9}px sans-serif`;
-                    ctx.textAlign = 'center';
-                    ctx.fillText(isSelected ? country.name : country.code, point.px, point.py - radius - (isSelected ? 11 : 9));
+                const dotT = flowPhase;
+                const dotX = (1 - dotT) * (1 - dotT) * a.px + 2 * (1 - dotT) * dotT * midX + dotT * dotT * b.px;
+                const dotY = (1 - dotT) * (1 - dotT) * a.py + 2 * (1 - dotT) * dotT * midY + dotT * dotT * b.py;
+                ctx.fillStyle = `rgba(255,255,255,${0.2 + 0.15 * (1 - dotT)})`;
+                ctx.beginPath();
+                ctx.arc(dotX, dotY, 1.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        visibleSorted.forEach(point => {
+            const country = COUNTRIES[point.idx];
+            const radius = dotR(country.co2, 0.82 + zoomRef.current * 0.26) * point.scale;
+            const [cr, cg, cb] = renewCol(country);
+            const emissionIntensity = getEmissionIntensity(country);
+            const isSelected = selected?.code === country.code;
+            if (country.co2 > 120 || isSelected) {
+                drawEmissionPlume(ctx, point.px, point.py, point.scale, country, timeMs, isSelected);
+            }
+
+            if (country.co2 > 300) {
+                const pulseCount = country.co2 > 3000 ? 3 : country.co2 > 1000 ? 2 : 1;
+                for (let r = 0; r < pulseCount; r++) {
+                    const pulsePhase = (timeMs * 0.0006 + r * (1 / pulseCount) + point.idx * 0.1) % 1;
+                    const pulseRadius = radius * (2.5 + pulsePhase * 5);
+                    const pulseAlpha = (0.12 + (isSelected ? 0.08 : 0)) * (1 - pulsePhase);
+                    ctx.strokeStyle = `rgba(${cr},${cg},${cb},${pulseAlpha})`;
+                    ctx.lineWidth = (1.2 - pulsePhase * 0.8);
+                    ctx.beginPath();
+                    ctx.arc(point.px, point.py, pulseRadius, 0, Math.PI * 2);
+                    ctx.stroke();
                 }
-            });
+            }
+
+            const glow = ctx.createRadialGradient(point.px, point.py, 0, point.px, point.py, radius * (isSelected ? 7.5 : 4.5));
+            glow.addColorStop(0, `rgba(${cr},${cg},${cb},${isSelected ? 0.5 : 0.28})`);
+            glow.addColorStop(0.65, `rgba(${cr},${cg},${cb},${isSelected ? 0.12 : 0.08})`);
+            glow.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(point.px, point.py, radius * (isSelected ? 7.5 : 4.5), 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},${isSelected ? 1 : 0.9})`;
+            ctx.beginPath();
+            ctx.arc(point.px, point.py, isSelected ? radius * 1.45 : radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = `rgba(255,255,255,${isSelected ? 0.95 : clamp(0.18 + emissionIntensity / 120, 0.2, 0.46)})`;
+            ctx.lineWidth = isSelected ? 1.8 : 0.7;
+            ctx.beginPath();
+            ctx.arc(point.px, point.py, radius + 2.2, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (isSelected || (COUNTRY_LABEL_CODES.has(country.code) && point.scale > 0.62)) {
+                ctx.fillStyle = 'rgba(255,255,255,0.82)';
+                ctx.font = `${isSelected ? '700' : '600'} ${isSelected ? 11 : 9}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText(isSelected ? country.name : country.code, point.px, point.py - radius - (isSelected ? 11 : 9));
+            }
+        });
         projCache.current = projected;
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(255,255,255,0.12)';

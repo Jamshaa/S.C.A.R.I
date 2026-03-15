@@ -20,6 +20,10 @@ cooling:
   auxiliary_power_ratio: 0.52
   facility_base_power: 0.0
   facility_power_ratio: 0.11
+  economizer_max_capacity: 2400.0
+  economizer_midpoint_temp: 17.5
+  economizer_slope: 0.58
+  liquid_economizer_factor: 0.34
 reward:
   energy_coefficient: 39.0
   safe_threshold: 49.5
@@ -37,6 +41,8 @@ reward:
 training:
   timesteps: 1400000
   learning_rate: 0.00012
+  use_linear_lr_schedule: true
+  learning_rate_end_factor: 0.2
   n_steps: 4096
   batch_size: 256
   gamma: 0.999
@@ -56,6 +62,8 @@ environment:
   min_initial_load: 0.35
   max_initial_load: 0.92
   load_std: 0.055
+  ambient_temp_variation: 6.0
+  ambient_cycle_steps: 1440
   terminate_on_hard_limit: true
   safety_override: true
   safety_override_temp: 54.4

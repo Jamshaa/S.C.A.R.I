@@ -51,6 +51,7 @@ class CoolingSystem:
     def get_cooling_capacity(self, flow_rate: float, ambient_temp: float=25.0, server_temp: float=50.0) -> float:
         flow_rate = np.clip(flow_rate, 0.0, 1.0)
         delta_t = max(0.1, server_temp - ambient_temp)
+        economizer_quality = 1.0 / (1.0 + np.exp(self.config.economizer_slope * (ambient_temp - self.config.economizer_midpoint_temp)))
         if self.mode == 'AIR':
             passive = self.config.natural_convection * (delta_t / 20.0)
             if flow_rate < 0.1:
@@ -58,17 +59,13 @@ class CoolingSystem:
             else:
                 base = self.config.air_cooling_capacity
                 active = base * flow_rate * (delta_t / 25.0)
-            economizer = 0.0
-            if ambient_temp < 15.0:
-                economizer = 2500.0 * flow_rate
-            elif ambient_temp < 22.0:
-                quality = (22.0 - ambient_temp) / 7.0
-                economizer = 1200.0 * flow_rate * quality
+            economizer = self.config.economizer_max_capacity * flow_rate * economizer_quality
             return float(passive + active + economizer)
         elif self.mode == 'LIQUID':
             effectiveness = min(1.0, delta_t / 40.0)
             capacity = flow_rate * self.config.liquid_cooling_capacity * effectiveness
-            return float(capacity)
+            economizer = self.config.economizer_max_capacity * self.config.liquid_economizer_factor * flow_rate * economizer_quality * min(1.0, delta_t / 30.0)
+            return float(capacity + economizer)
         elif self.mode == 'HYBRID':
             air_cap = self._air_sub.get_cooling_capacity(flow_rate * 0.6, ambient_temp, server_temp)
             liquid_cap = self._liquid_sub.get_cooling_capacity(flow_rate * 0.4, ambient_temp, server_temp)

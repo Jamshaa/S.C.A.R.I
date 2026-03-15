@@ -18,7 +18,7 @@ class Server:
         self.health = 1.0
         logger.debug(f'Server {self.id} init (cooling={config.cooling.mode})')
 
-    def update_physics(self, cpu_load: float, cooling_action: float, dt: float=1.0, inlet_temp_offset: float=0.0) -> Dict[str, float]:
+    def update_physics(self, cpu_load: float, cooling_action: float, dt: float=1.0, inlet_temp_offset: float=0.0, ambient_temp: float | None=None) -> Dict[str, float]:
         cpu_load = np.clip(cpu_load, 0.0, 1.0)
         cooling_action = np.clip(cooling_action, 0.0, 1.0)
         u = cpu_load
@@ -32,7 +32,8 @@ class Server:
         leakage_power = base_leakage * np.exp(k_leak * (self.temperature - t_ref))
         self.power_draw = it_dynamic_power + leakage_power
         heat_generated = self.power_draw
-        effective_ambient = self.config.physics.ambient_temp + inlet_temp_offset
+        base_ambient = self.config.physics.ambient_temp if ambient_temp is None else ambient_temp
+        effective_ambient = base_ambient + inlet_temp_offset
         capacity = self.cooling_system.get_cooling_capacity(cooling_action, ambient_temp=effective_ambient, server_temp=self.temperature)
         heat_removed = capacity
         cooling_cost = self.cooling_system.get_power_consumption(cooling_action)

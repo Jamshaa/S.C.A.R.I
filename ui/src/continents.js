@@ -67,7 +67,9 @@ export const ARABIA = [
     [32, 46], [30, 35]
 ];
 export const INDIA = [
-    [25, 68], [23, 68], [19, 72], [14, 73], [10, 76], [8, 78], [10, 80], [14, 82], [20, 87], [22, 91], [25, 68]
+    [35, 75], [33, 76], [30, 79], [28, 84], [27, 88], [25, 92], [22, 91], [20, 87], [14, 82],
+    [10, 80], [8, 78], [10, 76], [14, 73], [19, 72], [23, 68], [25, 68], [28, 68], [30, 67],
+    [33, 70], [35, 75]
 ];
 export const JAPAN = [
     [45, 142], [43, 144], [40, 141], [36, 139], [34, 136], [31, 132], [32, 130], [35, 133], [39, 138],
@@ -106,6 +108,99 @@ export const NEW_ZEALAND_SOUTH = [
 export const PAPUA = [
     [-2, 140], [-3, 144], [-5, 148], [-7, 150], [-9, 147], [-8, 143], [-6, 141], [-3, 140], [-2, 140]
 ];
+
+// === NEW: Missing landmasses ===
+
+export const CHINA = [
+    [49, 128], [47, 131], [44, 133], [40, 128], [42, 124], [46, 123],
+    [49, 118], [47, 115], [44, 112], [42, 110], [40, 108], [38, 107],
+    [36, 105], [34, 104], [32, 104], [29, 105], [27, 102], [24, 101],
+    [22, 100], [20, 106], [22, 108], [22, 110], [21, 112], [20, 112],
+    [18, 110], [18, 108], [20, 106], [22, 107], [26, 100], [28, 97],
+    [25, 92], [27, 88], [28, 84], [30, 79], [33, 76], [35, 75],
+    [37, 76], [40, 76], [42, 80], [44, 80], [47, 85],
+    [50, 90], [50, 100], [52, 105], [56, 115], [53, 120], [49, 128]
+];
+
+export const IRAN = [
+    [40, 44], [39, 49], [37, 53], [36, 57], [35, 61], [32, 62], [30, 60],
+    [27, 61], [25, 58], [26, 54], [27, 49], [30, 48], [31, 46], [33, 44],
+    [35, 44], [38, 43], [40, 44]
+];
+
+export const CENTRAL_ASIA = [
+    [50, 52], [51, 56], [50, 60], [48, 64], [46, 68], [43, 75],
+    [37, 72], [36, 68], [38, 60], [41, 52], [44, 48], [47, 47],
+    [50, 52]
+];
+
+export const SCANDINAVIA = [
+    [56, 12], [57, 14], [58, 16], [60, 15], [61, 19], [63, 22],
+    [65, 18], [68, 16], [70, 19], [70, 24], [71, 26], [71, 29],
+    [70, 31], [68, 28], [65, 25], [63, 22], [61, 19], [60, 15],
+    [59, 11], [57, 11], [56, 12]
+];
+
+export const ITALY = [
+    [46, 7], [46, 12], [44, 13], [43, 14], [42, 16], [40, 18],
+    [39, 16], [38, 16], [37, 16], [37, 15], [39, 14], [41, 14],
+    [43, 12], [44, 10], [45, 8], [46, 7]
+];
+
+export const SICILY = [
+    [38, 13], [38, 15], [37, 15], [37, 13], [38, 13]
+];
+
+export const SARDINIA = [
+    [41, 9], [40, 10], [39, 10], [39, 8], [40, 8], [41, 9]
+];
+
+export const TAIWAN = [
+    [25, 121], [24, 122], [22, 121], [22, 120], [24, 120], [25, 121]
+];
+
+export const SRI_LANKA = [
+    [10, 80], [9, 81], [7, 81], [6, 80], [7, 80], [8, 79], [10, 80]
+];
+
+export const CUBA = [
+    [23, -84], [22, -80], [20, -77], [20, -75], [21, -78], [22, -82], [23, -84]
+];
+
+export const HISPANIOLA = [
+    [20, -74], [19, -72], [18, -72], [18, -74], [19, -74], [20, -74]
+];
+
+export const SULAWESI = [
+    [2, 121], [1, 123], [-1, 122], [-2, 121], [-3, 122], [-5, 120],
+    [-3, 119], [-1, 120], [0, 120], [2, 121]
+];
+
+export const SVALBARD = [
+    [77, 15], [78, 18], [80, 20], [80, 16], [79, 12], [77, 15]
+];
+
+export const NOVAYA_ZEMLYA = [
+    [71, 52], [72, 54], [74, 56], [76, 60], [77, 62], [76, 64],
+    [74, 60], [72, 56], [71, 54], [71, 52]
+];
+
+export const IRELAND = [
+    [52, -10], [53, -10], [54, -9], [55, -8], [55, -6], [53, -6], [52, -7], [51, -9], [52, -10]
+];
+
+export const CORSICA = [
+    [43, 9], [42.5, 9.5], [42, 9], [41.5, 9], [42, 8.5], [43, 9]
+];
+
+export const HAINAN = [
+    [20, 109], [19, 111], [18, 110], [18, 109], [19, 109], [20, 109]
+];
+
+export const HOKKAIDO = [
+    [45, 142], [44, 145], [43, 145], [42, 143], [42, 141], [43, 140], [45, 142]
+];
+
 export const ALL_CONTINENTS = [
     { name: 'North America', coords: NORTH_AMERICA },
     { name: 'Central America', coords: CENTRAL_AMERICA },
@@ -131,4 +226,22 @@ export const ALL_CONTINENTS = [
     { name: 'New Zealand North', coords: NEW_ZEALAND_NORTH },
     { name: 'New Zealand South', coords: NEW_ZEALAND_SOUTH },
     { name: 'Papua', coords: PAPUA },
+    { name: 'China', coords: CHINA },
+    { name: 'Iran', coords: IRAN },
+    { name: 'Central Asia', coords: CENTRAL_ASIA },
+    { name: 'Scandinavia', coords: SCANDINAVIA },
+    { name: 'Italy', coords: ITALY },
+    { name: 'Sicily', coords: SICILY },
+    { name: 'Sardinia', coords: SARDINIA },
+    { name: 'Taiwan', coords: TAIWAN },
+    { name: 'Sri Lanka', coords: SRI_LANKA },
+    { name: 'Cuba', coords: CUBA },
+    { name: 'Hispaniola', coords: HISPANIOLA },
+    { name: 'Sulawesi', coords: SULAWESI },
+    { name: 'Svalbard', coords: SVALBARD },
+    { name: 'Novaya Zemlya', coords: NOVAYA_ZEMLYA },
+    { name: 'Ireland', coords: IRELAND },
+    { name: 'Corsica', coords: CORSICA },
+    { name: 'Hainan', coords: HAINAN },
+    { name: 'Hokkaido', coords: HOKKAIDO },
 ];

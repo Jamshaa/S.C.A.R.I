@@ -103,3 +103,19 @@ def test_facility_overhead_is_included_in_total_power():
     _, _, _, _, info = env.step(np.zeros(env.num_servers, dtype=np.float32))
     assert info['facility_power'] >= 120.0
     assert info['total_power'] >= info['it_power'] + info['cooling_power'] + 120.0
+
+
+def test_ambient_temperature_can_vary_across_episode():
+    cfg = Config()
+    cfg.environment.ambient_temp_variation = 4.0
+    cfg.environment.ambient_cycle_steps = 8
+    env = DataCenterEnv(cfg)
+    env.reset(seed=13)
+
+    observed = []
+    for _ in range(8):
+        _, _, _, _, info = env.step(np.zeros(env.num_servers, dtype=np.float32))
+        observed.append(info['ambient_temp'])
+
+    assert max(observed) > min(observed)
+    assert all(cfg.physics.min_temp <= value <= cfg.physics.max_temp for value in observed)

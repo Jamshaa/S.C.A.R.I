@@ -99,6 +99,10 @@ class CoolingConfig:
     hybrid_coordination_power: float = 4.0
     facility_base_power: float = 0.0
     facility_power_ratio: float = 0.0
+    economizer_max_capacity: float = 1800.0
+    economizer_midpoint_temp: float = 18.0
+    economizer_slope: float = 0.55
+    liquid_economizer_factor: float = 0.35
     capex_per_server: float = 150.0
     opex_per_server_year: float = 55.0
 
@@ -136,6 +140,8 @@ class RewardConfig:
 class TrainingConfig:
     timesteps: int = 600000
     learning_rate: float = 0.0003
+    use_linear_lr_schedule: bool = False
+    learning_rate_end_factor: float = 1.0
     n_steps: int = 2048
     batch_size: int = 64
     gamma: float = 0.995
@@ -158,6 +164,8 @@ class EnvironmentConfig:
     min_initial_load: float = 0.3
     max_initial_load: float = 0.85
     load_std: float = 0.08
+    ambient_temp_variation: float = 0.0
+    ambient_cycle_steps: int = 1440
     terminate_on_hard_limit: bool = True
     safety_override: bool = True
     safety_override_temp: float = 56.0

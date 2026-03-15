@@ -107,6 +107,16 @@ class TestCoolingSystem:
         assert hasattr(hybrid, '_air_sub')
         assert hasattr(hybrid, '_liquid_sub')
 
+    def test_cooler_ambient_increases_air_and_liquid_capacity(self):
+        air = CoolingSystem('AIR')
+        liquid = CoolingSystem('LIQUID')
+        air_cold = air.get_cooling_capacity(0.7, 12.0, 50.0)
+        air_hot = air.get_cooling_capacity(0.7, 30.0, 50.0)
+        liquid_cold = liquid.get_cooling_capacity(0.7, 12.0, 50.0)
+        liquid_hot = liquid.get_cooling_capacity(0.7, 30.0, 50.0)
+        assert air_cold > air_hot
+        assert liquid_cold > liquid_hot
+
     def test_degradation_works(self):
         cooling = CoolingSystem('AIR')
         initial = cooling.efficiency_factor

@@ -14,7 +14,7 @@ class Rack:
         self.last_cooling_power = 0.0
         logger.debug(f'Rack {self.id} initialized with {num_servers} servers')
 
-    def update(self, loads: np.ndarray, actions: np.ndarray) -> List[Dict[str, float]]:
+    def update(self, loads: np.ndarray, actions: np.ndarray, ambient_temp: float | None=None) -> List[Dict[str, float]]:
         loads = np.clip(loads, 0, 1)
         actions = np.clip(actions, 0, 1)
         if len(loads) != self.num_servers or len(actions) != self.num_servers:
@@ -25,7 +25,7 @@ class Rack:
         recirculation_factor = 0.08
         extra_inlet_heat = 0.0
         for i, server in enumerate(self.servers):
-            stat = server.update_physics(loads[i], actions[i], inlet_temp_offset=extra_inlet_heat)
+            stat = server.update_physics(loads[i], actions[i], inlet_temp_offset=extra_inlet_heat, ambient_temp=ambient_temp)
             extra_inlet_heat = stat['it_power'] / 500.0 * recirculation_factor
             stats.append(stat)
             total_cooling_power += stat['cooling_power']

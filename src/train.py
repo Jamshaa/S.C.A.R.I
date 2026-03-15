@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 import re
 import sys
+from typing import Callable
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -50,6 +51,19 @@ def apply_training_overrides(cfg: Config, args: argparse.Namespace) -> Config:
         cfg.cooling.capex_per_server = db['capex_per_server_eur']
         cfg.cooling.opex_per_server_year = db['opex_per_server_year_eur']
     return cfg
+
+
+def build_learning_rate(training_cfg) -> float | Callable[[float], float]:
+    base_lr = float(training_cfg.learning_rate)
+    if not training_cfg.use_linear_lr_schedule:
+        return base_lr
+    end_factor = float(np.clip(training_cfg.learning_rate_end_factor, 0.01, 1.0))
+    end_lr = max(base_lr * end_factor, 1e-8)
+
+    def schedule(progress_remaining: float) -> float:
+        return end_lr + (base_lr - end_lr) * float(progress_remaining)
+
+    return schedule
 
 def run_training():
     parser = argparse.ArgumentParser(description='S.C.A.R.I: Advanced Datacenter Thermal Management Training')
@@ -108,12 +122,12 @@ def run_training():
         env = Monitor(env, str(log_dir))
         return env
     env = DummyVecEnv([make_env])
-    env = VecNormalize(env, norm_obs=False, norm_reward=True, clip_obs=10.0)
+    env = VecNormalize(env, norm_obs=cfg.training.normalize_observation, norm_reward=True, clip_obs=10.0)
     print(f'\n🤖 Agent:')
     print(f'   Policy : Attention (Thermal-Aware)')
     print(f'   Device : {args.device}')
     print(f'   Steps  : {cfg.training.timesteps:,}')
-    model = PPO(AttentionPolicy, env, verbose=1, tensorboard_log=str(log_dir), learning_rate=cfg.training.learning_rate, n_steps=cfg.training.n_steps, batch_size=cfg.training.batch_size, gamma=cfg.training.gamma, gae_lambda=cfg.training.gae_lambda, ent_coef=cfg.training.ent_coef, vf_coef=cfg.training.vf_coef, max_grad_norm=cfg.training.max_grad_norm, n_epochs=cfg.training.n_epochs, clip_range=cfg.training.clip_range, device=args.device, seed=args.seed)
+    model = PPO(AttentionPolicy, env, verbose=1, tensorboard_log=str(log_dir), learning_rate=build_learning_rate(cfg.training), n_steps=cfg.training.n_steps, batch_size=cfg.training.batch_size, gamma=cfg.training.gamma, gae_lambda=cfg.training.gae_lambda, normalize_advantage=cfg.training.normalize_advantage, ent_coef=cfg.training.ent_coef, vf_coef=cfg.training.vf_coef, max_grad_norm=cfg.training.max_grad_norm, n_epochs=cfg.training.n_epochs, clip_range=cfg.training.clip_range, device=args.device, seed=args.seed)
     checkpoint_callback = CheckpointCallback(save_freq=max(1000, cfg.training.timesteps // 10), save_path=str(model_dir), name_prefix='scari')
     print(f'\n🚀 Training started for {cfg.training.timesteps:,} steps...')
     try:
