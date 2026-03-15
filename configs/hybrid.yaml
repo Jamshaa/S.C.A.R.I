@@ -9,43 +9,64 @@ physics:
   max_temp_change_per_second: 5.0
 cooling:
   mode: "HYBRID"
-  max_fan_power: 120.0
-  max_pump_power: 60.0
-  base_pump_power: 8.0
-  air_cooling_capacity: 1200.0
-  liquid_cooling_capacity: 15000.0
-  natural_convection: 8.0
+  max_fan_power: 85.0
+  max_pump_power: 40.0
+  base_pump_power: 7.0
+  air_cooling_capacity: 1800.0
+  liquid_cooling_capacity: 13000.0
+  natural_convection: 9.0
+  air_idle_power: 10.0
+  liquid_idle_power: 7.5
+  distribution_power: 6.5
+  auxiliary_power_ratio: 0.22
+  hybrid_coordination_power: 3.5
 reward:
-  energy_coefficient: 25.0
-  safe_threshold: 35.0
-  critical_limit: 45.0
-  thermal_penalty_coefficient: 8.0
-  emergency_penalty: 500.0
-  energy_efficiency_bonus: 20.0
-  energy_weight: 3.0
-  safety_weight: 1.5
-  stability_weight: 0.3
-  profile: "ENERGY_FIRST"
+  energy_coefficient: 34.0
+  safe_threshold: 53.0
+  critical_limit: 58.0
+  thermal_penalty_coefficient: 12.5
+  emergency_penalty: 1900.0
+  energy_efficiency_bonus: 23.0
+  energy_weight: 4.6
+  safety_weight: 2.1
+  stability_weight: 0.42
+  hard_limit: 60.0
+  warning_margin: 4.8
+  preemptive_penalty_coefficient: 48.0
+  hard_limit_penalty: 2800.0
+  cooling_power_weight: 2.4
+  overcooling_penalty_coefficient: 0.5
+  sweet_spot_low: 55.0
+  sweet_spot_high: 58.0
+  sweet_spot_bonus: 14.0
+  profile: "PRODUCTION_SAFE"
 training:
-  timesteps: 600000
-  learning_rate: 0.00015
+  timesteps: 1250000
+  learning_rate: 0.00013
   n_steps: 4096
-  batch_size: 128
-  gamma: 0.995
-  gae_lambda: 0.95
-  ent_coef: 0.005
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  n_epochs: 10
-  clip_range: 0.2
+  batch_size: 256
+  gamma: 0.999
+  gae_lambda: 0.97
+  ent_coef: 0.0028
+  vf_coef: 0.7
+  max_grad_norm: 0.35
+  n_epochs: 13
+  clip_range: 0.12
   normalize_advantage: true
   normalize_observation: true
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_steps: 2000
-  episode_length: 2000
-  max_load_change_per_step: 0.08
-  min_initial_load: 0.3
-  max_initial_load: 0.85
-  load_std: 0.08
+  max_steps: 3200
+  episode_length: 3200
+  max_load_change_per_step: 0.06
+  min_initial_load: 0.35
+  max_initial_load: 0.92
+  load_std: 0.06
+  terminate_on_hard_limit: true
+  safety_override: true
+  safety_override_temp: 55.2
+  safety_min_action: 0.16
+  safety_max_action: 1.0
+  safety_lookahead_weight: 0.43
+  safety_load_weight: 0.21

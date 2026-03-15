@@ -24,11 +24,6 @@ const fetchWithRetry = async (url, options = {}, retries = 3) => {
     }
   }
 };
-const fmt = (n, decimals = 0) => {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
-  return n.toFixed(decimals);
-};
 const fmtSteps = (n) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
@@ -180,79 +175,36 @@ const App = () => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  useEffect(() => {
-    fetchModels();
-    fetchEvalHistory();
-    let isMounted = true;
-    let errorCount = 0;
-    const poll = async () => {
-      if (!isMounted) return;
-      try {
-        await fetchStatus();
-        errorCount = 0; 
-      } catch {
-        errorCount++;
-        if (errorCount > 5) {
-          console.error("Polling stopped due to consecutive errors.");
-          addToast("Connection to backend lost. Polling stopped.", "error");
-          return;
-        }
-      }
-      if (isMounted) {
-        const delay = Math.min(2000 * Math.pow(1.2, errorCount), 10000);
-        setTimeout(poll, delay);
-      }
-    };
-    const timeout = setTimeout(poll, 2000);
-    return () => {
-      isMounted = false;
-      clearTimeout(timeout);
-    };
-  }, []);
-  const addToast = (message, type = 'success') => {
+  const addToast = useCallback((message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
-  };
-  const fetchModels = () => {
+  }, []);
+  const fetchModels = useCallback(() => {
     fetch(`${API_BASE}/models`)
       .then(res => res.json())
       .then(data => setModels(data.models || []))
-      .catch(() => addToast('Failed to fetch models', 'error'));
-  };
-  const fetchEvalHistory = () => {
+      .catch((error) => addToast(`Failed to fetch models: ${error.message}`, 'error'));
+  }, [addToast]);
+  const fetchEvalHistory = useCallback(() => {
     setLoadingEvalHistory(true);
     fetch(`${API_BASE}/history`)
       .then(res => res.json())
       .then(data => setEvalHistory(data.history || []))
-      .catch(() => addToast('Failed to fetch evaluation history', 'error'))
+      .catch((error) => addToast(`Failed to fetch evaluation history: ${error.message}`, 'error'))
       .finally(() => setLoadingEvalHistory(false));
-  };
-  const loadEvalResult = async (runId) => {
+  }, [addToast]);
+  const fetchResults = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/history/${runId}`);
-      if (!res.ok) throw new Error(await res.text());
+      const res = await fetchWithRetry(`${API_BASE}/evaluation-results`);
+      if (!res) return;
       const data = await res.json();
-      setResults(data);
-      addToast(`Loaded evaluation: ${runId}`, 'success');
-      setMainTab('analytics');
-    } catch (e) {
-      addToast(`Failed to load: ${e.message}`, 'error');
+      if (data.metrics) setResults(data);
+    } catch (error) {
+      console.debug('Failed to fetch latest evaluation results', error);
     }
-  };
-  const deleteEvalResult = async (runId, e) => {
-    if (e) e.stopPropagation();
-    if (!window.confirm(`Delete evaluation ${runId}?`)) return;
-    try {
-      const res = await fetch(`${API_BASE}/history/${runId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(await res.text());
-      setEvalHistory(prev => prev.filter(h => h.id !== runId));
-      addToast('Evaluation deleted', 'success');
-    } catch (e) {
-      addToast('Delete failed', 'error');
-    }
-  };
-  const fetchStatus = async () => {
+  }, []);
+  const fetchStatus = useCallback(async () => {
     try {
       const [statusRes, evalRes] = await Promise.all([
         fetchWithRetry(`${API_BASE}/status`),
@@ -279,18 +231,66 @@ const App = () => {
           setIsEvaluating(false);
           setEvalLog('');
           fetchResults();
-          fetchEvalHistory(); 
+          fetchEvalHistory();
         }
       }
-    } catch {  }
-  };
-  const fetchResults = async () => {
+    } catch (error) {
+      console.debug('Status polling failed', error);
+    }
+  }, [fetchEvalHistory, fetchModels, fetchResults]);
+  useEffect(() => {
+    fetchModels();
+    fetchEvalHistory();
+    let isMounted = true;
+    let errorCount = 0;
+    const poll = async () => {
+      if (!isMounted) return;
+      try {
+        await fetchStatus();
+        errorCount = 0; 
+      } catch (error) {
+        errorCount++;
+        console.debug('Polling iteration failed', error);
+        if (errorCount > 5) {
+          console.error("Polling stopped due to consecutive errors.");
+          addToast("Connection to backend lost. Polling stopped.", "error");
+          return;
+        }
+      }
+      if (isMounted) {
+        const delay = Math.min(2000 * Math.pow(1.2, errorCount), 10000);
+        setTimeout(poll, delay);
+      }
+    };
+    const timeout = setTimeout(poll, 2000);
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+    };
+  }, [addToast, fetchEvalHistory, fetchModels, fetchStatus]);
+  const loadEvalResult = async (runId) => {
     try {
-      const res = await fetchWithRetry(`${API_BASE}/evaluation-results`);
-      if (!res) return;
+      const res = await fetch(`${API_BASE}/history/${runId}`);
+      if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      if (data.metrics) setResults(data);
-    } catch {  }
+      setResults(data);
+      addToast(`Loaded evaluation: ${runId}`, 'success');
+      setMainTab('analytics');
+    } catch (e) {
+      addToast(`Failed to load: ${e.message}`, 'error');
+    }
+  };
+  const deleteEvalResult = async (runId, e) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm(`Delete evaluation ${runId}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/history/${runId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(await res.text());
+      setEvalHistory(prev => prev.filter(h => h.id !== runId));
+      addToast('Evaluation deleted', 'success');
+    } catch (error) {
+      addToast(`Delete failed: ${error.message}`, 'error');
+    }
   };
   const handleTrain = async () => {
     try {
@@ -300,7 +300,7 @@ const App = () => {
         body: JSON.stringify({
           timesteps: trainingSteps,
           name: trainingName,
-          config: 'configs/default.yaml',
+          config: 'configs/optimized.yaml',
           cooling_mode: coolingMode
         })
       });
@@ -402,8 +402,8 @@ const App = () => {
         addToast(data.message || 'All models deleted', 'success');
         setModels([]);
         setSelectedModel('');
-      } catch {
-        addToast('Failed to delete all models', 'error');
+      } catch (error) {
+        addToast(`Failed to delete all models: ${error.message}`, 'error');
       }
     } else {
       try {
@@ -412,8 +412,8 @@ const App = () => {
         addToast(`Deleted ${deleteTarget}`, 'success');
         setModels(prev => prev.filter(m => m !== deleteTarget));
         if (selectedModel === deleteTarget) setSelectedModel('');
-      } catch {
-        addToast('Failed to delete model', 'error');
+      } catch (error) {
+        addToast(`Failed to delete model: ${error.message}`, 'error');
       }
     }
     setIsDeleting(false);
@@ -432,8 +432,8 @@ const App = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       addToast(`Downloaded ${filename}`);
-    } catch {
-      addToast('Download failed', 'error');
+    } catch (error) {
+      addToast(`Download failed: ${error.message}`, 'error');
     }
   };
   const downloadAllCharts = async () => {
@@ -603,7 +603,7 @@ const App = () => {
             </p>
           </div>
         )}
-        <section style={{ display: 'flex', flexDirection: 'column', minHeight: '80px' }}>
+        <section className="sidebar-section registry-section">
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Activity size={11} />
@@ -613,7 +613,7 @@ const App = () => {
               <RefreshCw size={11} />
             </button>
           </div>
-          <div style={{ marginBottom: '12px' }}>
+          <div className="registry-controls">
             <label>Run Name</label>
             <input
               value={evalName}
@@ -640,57 +640,63 @@ const App = () => {
             {isEvaluating ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
             {isEvaluating ? 'Evaluating…' : 'Run Evaluation'}
           </button>
-          <div style={{ overflowY: 'auto', maxHeight: '150px' }}>
-            {models.length === 0 && (
-              <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>No models found</p>
-            )}
-            {models.length > 0 && (
-              <div
-                className="group"
-                onClick={() => setIsCompareModalOpen(true)}
-                style={{ padding: '8px 10px', borderBottom: '1px solid var(--border)', background: 'rgba(var(--accent-rgb), 0.1)', cursor: 'pointer' }}
-              >
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent)' }}>
-                  <GitMerge size={11} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
-                  Compare All Modes...
-                </span>
-              </div>
-            )}
-            {models.map(m => (
-              <div
-                key={m}
-                className={`group ${selectedModel === m ? 'selected' : ''}`}
-                onClick={() => setSelectedModel(m)}
-                style={{ padding: '8px 10px' }}
-              >
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: selectedModel === m ? 600 : 400,
-                  color: selectedModel === m ? 'var(--text)' : 'var(--text-secondary)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  flex: 1
-                }}>{m}</span>
-                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
-                    style={{ padding: '3px' }}
-                  >
-                    <Edit2 size={11} />
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={(e) => handleRequestDelete(m, e)}
-                    style={{ padding: '3px', color: 'var(--danger)' }}
-                  >
-                    <Trash2 size={11} />
-                  </button>
+          <div className="registry-list-shell">
+            <div className="registry-list-header">
+              <span className="text-label">Available Models</span>
+              <span className="badge">{models.length}</span>
+            </div>
+            <div className="registry-list">
+              {models.length === 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic', padding: '12px 2px' }}>No models found</p>
+              )}
+              {models.length > 0 && (
+                <div
+                  className="group registry-compare-row"
+                  onClick={() => setIsCompareModalOpen(true)}
+                >
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--accent)' }}>
+                    <GitMerge size={12} style={{ marginRight: '6px', verticalAlign: '-2px' }} />
+                    Compare All Modes...
+                  </span>
                 </div>
-              </div>
-            ))}
+              )}
+              {models.map(m => (
+                <div
+                  key={m}
+                  className={`group registry-item ${selectedModel === m ? 'selected' : ''}`}
+                  onClick={() => setSelectedModel(m)}
+                >
+                  <span
+                    className="registry-item-name"
+                    style={{
+                      fontWeight: selectedModel === m ? 700 : 500,
+                      color: selectedModel === m ? 'var(--text)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {m}
+                  </span>
+                  <div className="registry-item-actions">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={(e) => { e.stopPropagation(); setRenameTarget(m); setIsRenaming(true); setNewName(m); }}
+                      style={{ padding: '3px' }}
+                    >
+                      <Edit2 size={11} />
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={(e) => handleRequestDelete(m, e)}
+                      style={{ padding: '3px', color: 'var(--danger)' }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
-        <section style={{ display: 'flex', flexDirection: 'column', marginTop: '28px', borderTop: '1px solid var(--border)', paddingTop: '20px', flex: 1, minHeight: 0 }}>
+        <section className="sidebar-section sidebar-history-section">
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <History size={11} />
@@ -859,21 +865,32 @@ const App = () => {
                   s = m[bestModelName];
                 }
                 if (!s) return null;
+                const baselineLabel = b.controller_name || 'BASELINE';
                 const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
+                const coolingSavings = typeof s.total_cooling_power_consumption === 'number' && b.total_cooling_power_consumption > 0
+                  ? (b.total_cooling_power_consumption - s.total_cooling_power_consumption) / b.total_cooling_power_consumption
+                  : 0;
                 const metrics = [
                   {
                     label: 'Best Power Reduction',
                     value: `${(energySavings * 100).toFixed(1)}%`,
                     icon: TrendingDown,
                     color: 'var(--success)',
-                    desc: `vs baseline (${bestModelName})`
+                    desc: `vs ${baselineLabel}`
+                  },
+                  {
+                    label: 'Cooling Reduction',
+                    value: `${(coolingSavings * 100).toFixed(1)}%`,
+                    icon: Wind,
+                    color: 'var(--accent)',
+                    desc: `Cooling-only savings vs ${baselineLabel}`
                   },
                   {
                     label: `Best PUE (${bestModelName})`,
                     value: s.average_pue.toFixed(3),
                     icon: Zap,
                     color: 'var(--accent)',
-                    desc: `Baseline PUE: ${b.average_pue.toFixed(3)}`
+                    desc: `${baselineLabel} PUE: ${b.average_pue.toFixed(3)}`
                   },
                   {
                     label: 'Avg Temperature',

@@ -1,25 +1,52 @@
 import argparse
+import sys
 import logging
 from pathlib import Path
+import re
+import sys
 import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 import numpy as np
-from src.utils.config import Config, DEFAULT_CONFIG, COOLING_COST_DB
+from src.utils.config import Config, DEFAULT_CONFIG, COOLING_COST_DB, PREFERRED_CONFIG_PATH, get_available_config_paths, prompt_for_config_selection, resolve_config_file
 from src.envs.datacenter_env import DataCenterEnv
 from src.models.policy import AttentionPolicy
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('SCARI')
+OUTPUT_NAME_PATTERN = re.compile(r'[^A-Za-z0-9._ -]+')
+
+
+def normalize_output_name(value: str) -> str:
+    cleaned = OUTPUT_NAME_PATTERN.sub('', (value or '').strip()).replace(' ', '_')
+    cleaned = cleaned.strip('._-')
+    if not cleaned:
+        raise ValueError('output name must contain letters or numbers')
+    return cleaned[:80]
+
+
+def choose_config_path(config_argument: str | None) -> Path:
+    if config_argument:
+        return resolve_config_file(config_argument)
+    if sys.stdin.isatty():
+        print(f'\nNo --config specified. Press Enter to use {PREFERRED_CONFIG_PATH.name} or choose another profile.')
+        return prompt_for_config_selection(PREFERRED_CONFIG_PATH)
+    return resolve_config_file(PREFERRED_CONFIG_PATH)
+
+
+def print_available_configs() -> None:
+    for config_path in get_available_config_paths():
+        marker = ' (default)' if config_path.resolve() == PREFERRED_CONFIG_PATH.resolve() else ''
+        print(f'- {config_path.name}{marker}')
 
 def run_training():
     parser = argparse.ArgumentParser(description='S.C.A.R.I: Advanced Datacenter Thermal Management Training')
     base_dir = Path(__file__).parent.parent
-    default_config = base_dir / 'configs/default.yaml'
     default_models = base_dir / 'data/models'
     default_logs = base_dir / 'logs/tb'
-    parser.add_argument('--config', type=str, default=str(default_config))
+    parser.add_argument('--config', type=str, help='Config path; if omitted, optimized.yaml is used by default')
+    parser.add_argument('--list-configs', action='store_true', help='List available YAML configs and exit')
     parser.add_argument('--timesteps', type=int, help='Override total training timesteps')
     parser.add_argument('--model-dir', type=str, default=str(default_models))
     parser.add_argument('--log-dir', type=str, default=str(default_logs))
@@ -29,6 +56,10 @@ def run_training():
     parser.add_argument('--output-name', type=str, default='scari_final')
     parser.add_argument('--cooling-mode', type=str, default='AIR', choices=['AIR', 'LIQUID', 'HYBRID'], help='Cooling system type: AIR, LIQUID, or HYBRID')
     args = parser.parse_args()
+    if args.list_configs:
+        print_available_configs()
+        return
+    args.output_name = normalize_output_name(args.output_name)
     model_dir = Path(args.model_dir)
     log_dir = Path(args.log_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -37,12 +68,16 @@ def run_training():
     print('=' * 70)
     print('🚀 S.C.A.R.I — PRODUCTION TRAINING ENGINE')
     print('=' * 70)
+    config_path = choose_config_path(args.config)
     try:
-        config_path = Path(args.config)
-        cfg = Config.from_yaml(config_path) if config_path.exists() else DEFAULT_CONFIG
+        cfg = Config.from_yaml(config_path)
     except Exception as e:
-        logger.error(f'Failed to load config: {e}. Falling back to default.')
-        cfg = DEFAULT_CONFIG
+        logger.error(f'Failed to load config: {e}. Falling back to optimized profile.')
+        try:
+            config_path = resolve_config_file(PREFERRED_CONFIG_PATH)
+            cfg = Config.from_yaml(config_path)
+        except Exception:
+            cfg = DEFAULT_CONFIG
     if args.timesteps:
         cfg.training.timesteps = args.timesteps
     if args.profile:
@@ -55,7 +90,7 @@ def run_training():
     num_servers = cfg.environment.num_racks * cfg.environment.servers_per_rack
     cost_summary = cfg.cooling.get_cost_summary(num_servers)
     print(f'\n📂 Configuration:')
-    print(f'   Config file : {args.config}')
+    print(f'   Config file : {config_path}')
     print(f'   Models dir  : {model_dir}')
     print(f'   Logs dir    : {log_dir}')
     print(f'   Profile     : {cfg.reward.profile}')

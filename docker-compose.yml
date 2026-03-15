@@ -18,40 +18,30 @@ services:
     networks:
       - scari-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
     restart: unless-stopped
-    command: >
-      sh -c "echo 'Starting S.C.A.R.I Backend...' &&
-             uvicorn src.api.app:app 
-             --host 0.0.0.0 
-             --port 8000 
-             --reload"
+    command: ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
   # Frontend Service
   frontend:
     build:
       context: ./ui
       dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
     container_name: scari-frontend
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
-    environment:
-      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8000}
-      - NODE_ENV=${NODE_ENV:-production}
-    volumes:
-      - ./ui/src:/app/src
-      - ./ui/public:/app/public
     networks:
       - scari-network
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
-    command: npm run dev
 
 networks:
   scari-network:

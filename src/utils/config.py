@@ -1,10 +1,75 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 from pathlib import Path
 import yaml
 import json
 import logging
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CONFIGS_DIR = PROJECT_ROOT / 'configs'
+PREFERRED_CONFIG_NAME = 'optimized.yaml'
+PREFERRED_CONFIG_PATH = CONFIGS_DIR / PREFERRED_CONFIG_NAME
+
+
+def get_available_config_paths() -> List[Path]:
+    configs = sorted(CONFIGS_DIR.glob('*.yaml')) + sorted(CONFIGS_DIR.glob('*.yml'))
+    deduped = []
+    seen = set()
+    for config_path in configs:
+        resolved = config_path.resolve()
+        if resolved not in seen and config_path.is_file():
+            deduped.append(resolved)
+            seen.add(resolved)
+    return deduped
+
+
+def resolve_config_file(config_value: Optional[Union[str, Path]]=None) -> Path:
+    if config_value:
+        candidate = Path(config_value)
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            project_candidate = (PROJECT_ROOT / candidate).resolve()
+            configs_candidate = (CONFIGS_DIR / candidate.name).resolve()
+            if project_candidate.exists():
+                resolved = project_candidate
+            else:
+                resolved = configs_candidate
+        if not resolved.exists():
+            raise FileNotFoundError(f'Config file not found: {config_value}')
+        return resolved
+    if PREFERRED_CONFIG_PATH.exists():
+        return PREFERRED_CONFIG_PATH.resolve()
+    available = get_available_config_paths()
+    if available:
+        return available[0]
+    raise FileNotFoundError('No YAML configs were found in configs/')
+
+
+def prompt_for_config_selection(default_config: Optional[Union[str, Path]]=None) -> Path:
+    available = get_available_config_paths()
+    if not available:
+        raise FileNotFoundError('No YAML configs were found in configs/')
+    default_path = resolve_config_file(default_config) if default_config else resolve_config_file()
+    print('\nAvailable configuration profiles:')
+    for idx, config_path in enumerate(available, start=1):
+        marker = ' (default)' if config_path == default_path else ''
+        print(f'  {idx}. {config_path.name}{marker}')
+    while True:
+        try:
+            choice = input(f"Choose config [Enter={default_path.name}]: ").strip()
+        except EOFError:
+            return default_path
+        if not choice:
+            return default_path
+        if choice.isdigit():
+            index = int(choice) - 1
+            if 0 <= index < len(available):
+                return available[index]
+        for config_path in available:
+            if choice.lower() in {config_path.name.lower(), config_path.stem.lower()}:
+                return config_path
+        print('Invalid selection. Enter the number or filename shown above.')
 COOLING_COST_DB = {'AIR': {'label': 'Air Cooling', 'description': 'Traditional CRAC/CRAH forced-air cooling', 'capex_per_server_eur': 150, 'opex_per_server_year_eur': 55, 'typical_pue': 1.4, 'max_density_kw_per_rack': 8}, 'LIQUID': {'label': 'Direct Liquid Cooling', 'description': 'Cold-plate or immersion liquid cooling', 'capex_per_server_eur': 850, 'opex_per_server_year_eur': 120, 'typical_pue': 1.05, 'max_density_kw_per_rack': 100}, 'HYBRID': {'label': 'Hybrid Cooling', 'description': 'Liquid for CPUs/GPUs + air for memory/storage', 'capex_per_server_eur': 500, 'opex_per_server_year_eur': 90, 'typical_pue': 1.15, 'max_density_kw_per_rack': 40}}
 
 @dataclass
@@ -27,6 +92,11 @@ class CoolingConfig:
     air_cooling_capacity: float = 1200.0
     liquid_cooling_capacity: float = 15000.0
     natural_convection: float = 8.0
+    air_idle_power: float = 12.0
+    liquid_idle_power: float = 8.0
+    distribution_power: float = 8.0
+    auxiliary_power_ratio: float = 0.24
+    hybrid_coordination_power: float = 4.0
     capex_per_server: float = 150.0
     opex_per_server_year: float = 55.0
 
@@ -59,6 +129,15 @@ class RewardConfig:
     safe_threshold: float = 35.0
     emergency_penalty: float = 500.0
     energy_efficiency_bonus: float = 20.0
+    hard_limit: float = 60.0
+    warning_margin: float = 6.0
+    preemptive_penalty_coefficient: float = 30.0
+    hard_limit_penalty: float = 2000.0
+    cooling_power_weight: float = 2.0
+    overcooling_penalty_coefficient: float = 0.35
+    sweet_spot_low: float = 54.0
+    sweet_spot_high: float = 58.5
+    sweet_spot_bonus: float = 12.0
 
 @dataclass
 class TrainingConfig:
@@ -87,6 +166,13 @@ class EnvironmentConfig:
     max_initial_load: float = 0.85
     load_std: float = 0.08
     episode_length: int = 2000
+    terminate_on_hard_limit: bool = True
+    safety_override: bool = True
+    safety_override_temp: float = 56.0
+    safety_min_action: float = 0.2
+    safety_max_action: float = 1.0
+    safety_lookahead_weight: float = 0.35
+    safety_load_weight: float = 0.18
 
 @dataclass
 class Config:

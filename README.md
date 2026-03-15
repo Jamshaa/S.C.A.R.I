@@ -60,7 +60,7 @@
 ### Prerequisites
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 20+
 - Git
 
 ### Setup
@@ -104,12 +104,8 @@ Open **http://localhost:5173**
 Press `Ctrl+C` in each terminal. Alternatively:
 
 ```bash
-# Kill backend by port (Windows)
+# Kill the API bound to port 8000 (Windows)
 python src/scripts/cleanup_server.py
-
-# Or manually
-taskkill /F /IM python.exe
-taskkill /F /IM node.exe
 ```
 
 ---
@@ -119,8 +115,10 @@ taskkill /F /IM node.exe
 ```
 S.C.A.R.I/
 ├── configs/
-│   ├── default.yaml            # Base training profile
-│   └── optimized.yaml          # Tuned thermal-safe profile
+│   ├── optimized.yaml          # General-purpose default profile
+│   ├── max_savings_safe.yaml   # Max savings with hard 60°C guardrail
+│   ├── liquid.yaml             # Profile tuned for liquid cooling
+│   └── hybrid.yaml             # Profile tuned for hybrid cooling
 ├── data/models/                # Trained model checkpoints (.zip)
 ├── src/
 │   ├── api/
@@ -189,6 +187,8 @@ Once the backend is running, interactive docs are at:
 | `DELETE` | `/history/{id}`       | Delete an evaluation run |
 | `GET`    | `/explain`            | AI decision explanations |
 
+Note: mutating endpoints are local-only by default. To call them from another host, set `SCARI_API_KEY` in `.env` and send the same value in the `X-API-Key` header.
+
 ### Sustainability Calculator Endpoints
 
 | Method | Path                              | Description                      |
@@ -229,12 +229,35 @@ python -m pytest tests/ --cov=src --cov-report=html
 
 ## Configuration
 
-Training profiles live in `configs/`. The `optimized.yaml` profile includes:
+Training profiles live in `configs/`. `optimized.yaml` is the project default for UI, API and CLI unless you explicitly pass another YAML. It includes:
 
 - **Physics**: Realistic thermal mass, power ranges, temperature limits
 - **Cooling**: Industrial fan/pump power, air and liquid cooling capacities
 - **Reward**: Safety-first weighting with energy efficiency as secondary objective
 - **Training**: PPO hyperparameters tuned for thermal stability convergence
+
+For the stricter goal of maximizing savings while keeping an operational ceiling of `60°C`, use `configs/max_savings_safe.yaml`. It enables a hard thermal limit, pre-emptive penalties near the ceiling, and a safety override that raises cooling before the policy can drift into unsafe temperatures.
+
+### Choosing a YAML
+
+```bash
+# Train and choose interactively in console (Enter uses optimized.yaml)
+python -m src.train
+
+# Evaluate and choose interactively in console (Enter uses optimized.yaml)
+python -m src.evaluate --models data/models/scari_final.zip
+
+# Force a specific profile by parameter
+python -m src.train --config configs/max_savings_safe.yaml --cooling-mode AIR --output-name scari_safe
+
+# Force a liquid or hybrid profile
+python -m src.train --config configs/liquid.yaml --cooling-mode LIQUID --output-name scari_liquid
+python -m src.train --config configs/hybrid.yaml --cooling-mode HYBRID --output-name scari_hybrid
+
+# List available YAML profiles
+python -m src.train --list-configs
+python -m src.evaluate --list-configs
+```
 
 ---
 

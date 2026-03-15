@@ -1,23 +1,37 @@
 import argparse
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import logging
-from pathlib import Path
-from typing import Dict, Tuple, List, Optional, Any
 import json
-from dataclasses import dataclass, asdict
-from tqdm import tqdm
+import logging
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from src.utils.config import Config, DEFAULT_CONFIG
-from src.utils.visualization import PerformanceVisualizer
+from stable_baselines3.common.vec_env import DummyVecEnv
+from tqdm import tqdm
+
+from src.utils.config import (
+    Config,
+    DEFAULT_CONFIG,
+    PREFERRED_CONFIG_PATH,
+    get_available_config_paths,
+    prompt_for_config_selection,
+    resolve_config_file,
+)
 from src.utils.explainability import DecisionExplainer
+from src.utils.visualization import PerformanceVisualizer
+
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 @dataclass
 class EvaluationMetrics:
+    controller_name: str
     total_power_consumption: float
+    total_it_power_consumption: float
+    total_cooling_power_consumption: float
     average_temperature: float
     max_temperature: float
     min_temperature: float
@@ -30,184 +44,412 @@ class EvaluationMetrics:
     average_pue: float
     average_health: float
     convergence_time: int
+    total_steps: int
+    average_it_power: float
+    average_cooling_power: float
+    average_cooling_share: float
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-BASE_DIR = Path(__file__).resolve().parent
+
 
 class BaselineController:
-
-    def __init__(self, target_temp: float=45.0):
-        self.target_temp = target_temp
+    def __init__(
+        self,
+        target_temp: float = 50.0,
+        min_action: float = 0.18,
+        max_action: float = 1.0,
+        controller_name: str = "REAL_WORLD_PID",
+    ):
+        self.target_temp = float(target_temp)
+        self.min_action = float(min_action)
+        self.max_action = float(max_action)
+        self.controller_name = controller_name
         self.prev_error = 0.0
+        self.prev_max_temp: Optional[float] = None
         self.integral = 0.0
 
-    def compute_action(self, temps: np.ndarray, num_servers: int) -> np.ndarray:
-        max_temp = np.max(temps)
+    def compute_action(
+        self,
+        temps: np.ndarray,
+        loads: Optional[np.ndarray],
+        num_servers: int,
+    ) -> np.ndarray:
+        max_temp = float(np.max(temps))
+        avg_temp = float(np.mean(temps))
+        avg_load = float(np.mean(loads)) if loads is not None and len(loads) else 0.55
+        temp_rise = 0.0 if self.prev_max_temp is None else max(0.0, max_temp - self.prev_max_temp)
         error = max_temp - self.target_temp
-        kp, ki, kd = (0.05, 0.002, 0.01)
-        self.integral += error
-        self.integral = np.clip(self.integral, -100, 100)
+
+        kp, ki, kd = (0.05, 0.001, 0.03)
+        self.integral = float(np.clip(self.integral + error, -120.0, 120.0))
         derivative = error - self.prev_error
         self.prev_error = error
-        fan_speed = kp * error + ki * self.integral + kd * derivative
-        fan_speed = np.clip(0.1 + fan_speed, 0.1, 1.0)
-        return np.ones(num_servers) * fan_speed
+        self.prev_max_temp = max_temp
 
-    def reset(self):
+        base_flow = self.min_action + np.clip((avg_load - 0.35) / 0.55, 0.0, 1.0) * 0.16
+        headroom_guard = np.clip((avg_temp - (self.target_temp - 7.5)) / 7.5, 0.0, 1.0) * 0.22
+        ramp_guard = np.clip(temp_rise / 1.5, 0.0, 1.0) * 0.18
+        fan_speed = base_flow + headroom_guard + ramp_guard + kp * error + ki * self.integral + kd * derivative
+
+        if max_temp > self.target_temp + 2.0:
+            fan_speed = max(fan_speed, 0.52)
+        if max_temp > self.target_temp + 4.0:
+            fan_speed = max(fan_speed, 0.72)
+        if max_temp > self.target_temp + 6.0:
+            fan_speed = self.max_action
+
+        fan_speed = float(np.clip(fan_speed, self.min_action, self.max_action))
+        return np.ones(num_servers, dtype=np.float32) * fan_speed
+
+    def reset(self) -> None:
         self.prev_error = 0.0
+        self.prev_max_temp = None
         self.integral = 0.0
 
-class EvaluationRunner:
 
+def choose_config_path(config_argument: str | None) -> Path:
+    if config_argument:
+        return resolve_config_file(config_argument)
+    if sys.stdin.isatty():
+        print(f"\nNo --config specified. Press Enter to use {PREFERRED_CONFIG_PATH.name} or choose another profile.")
+        return prompt_for_config_selection(PREFERRED_CONFIG_PATH)
+    return resolve_config_file(PREFERRED_CONFIG_PATH)
+
+
+def print_available_configs() -> None:
+    for config_path in get_available_config_paths():
+        marker = " (default)" if config_path.resolve() == PREFERRED_CONFIG_PATH.resolve() else ""
+        print(f"- {config_path.name}{marker}")
+
+
+def build_realistic_baseline(config: Config) -> BaselineController:
+    conservative_target = min(config.reward.safe_threshold - 1.5, config.reward.hard_limit - 8.0)
+    conservative_target = max(config.physics.ambient_temp + 17.0, conservative_target)
+    conservative_target = min(conservative_target, config.reward.hard_limit - 5.0)
+    return BaselineController(
+        target_temp=conservative_target,
+        min_action=max(0.16, config.environment.safety_min_action),
+        controller_name="REAL_WORLD_PID",
+    )
+
+
+class EvaluationRunner:
     def __init__(self, config: Config, env: Any):
         self.config = config
         self.env = env
-        if hasattr(env, 'get_attr'):
-            self.num_servers = env.get_attr('num_servers')[0]
+        if hasattr(env, "get_attr"):
+            self.num_servers = env.get_attr("num_servers")[0]
         else:
             self.num_servers = 10
-        self.baseline = BaselineController(target_temp=25.0)
+        self.baseline = build_realistic_baseline(config)
         self.baseline_it_powers: List[float] = []
         self.baseline_cooling_powers: List[float] = []
         self.model_it_powers: List[float] = []
         self.model_cooling_powers: List[float] = []
 
-    def evaluate_baseline(self, num_steps: int=5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
-        print('\n📊 Evaluating Baseline (Legacy PID) Controller...')
-        obs = self.env.reset()
-        rewards, temps, powers = ([], [], [])
-        it_powers, cooling_powers, healths, all_actions = ([], [], [], [])
+    def _get_current_loads(self) -> Optional[np.ndarray]:
+        if hasattr(self.env, "get_attr"):
+            try:
+                loads = self.env.get_attr("current_loads")[0]
+                return np.array(loads, dtype=np.float32)
+            except Exception:
+                return None
+        return None
+
+    def evaluate_baseline(self, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
+        print(
+            f"\nEvaluating baseline controller: {self.baseline.controller_name} "
+            f"(target={self.baseline.target_temp:.1f}C)"
+        )
+        self.baseline.reset()
+        self.env.reset()
+        rewards: List[float] = []
+        temps: List[float] = []
+        powers: List[float] = []
+        it_powers: List[float] = []
+        cooling_powers: List[float] = []
+        healths: List[float] = []
+        all_actions: List[float] = []
         violations = 0
-        initial_temps = np.ones(self.num_servers) * self.config.physics.ambient_temp
-        action = self.baseline.compute_action(initial_temps, self.num_servers)
-        for _ in tqdm(range(num_steps), desc='Baseline'):
-            obs, reward, done, info = self.env.step([action])
-            server_temps = np.array([s['temp'] for s in info[0].get('stats', [{'temp': info[0].get('avg_temp', 25.0)}] * self.num_servers)])
-            action = self.baseline.compute_action(server_temps, self.num_servers)
-            rewards.append(reward[0])
-            temps.append(info[0].get('max_temp', 25.0))
-            powers.append(info[0].get('total_power', 0.0))
-            it_powers.append(info[0].get('it_power', info[0].get('total_power', 0.0) * 0.9))
-            cooling_powers.append(info[0].get('cooling_power', info[0].get('total_power', 0.0) * 0.1))
-            healths.append(info[0].get('avg_health', 1.0))
-            all_actions.append(np.mean(action))
-            if info[0]['max_temp'] >= self.config.physics.max_temp:
+        initial_temps = np.ones(self.num_servers, dtype=np.float32) * self.config.physics.ambient_temp
+        action = self.baseline.compute_action(initial_temps, self._get_current_loads(), self.num_servers)
+
+        for _ in tqdm(range(num_steps), desc="Baseline", leave=False):
+            _, reward, _, info = self.env.step([action])
+            step_info = info[0]
+            server_temps = np.array(
+                [server["temp"] for server in step_info.get("stats", [{"temp": step_info.get("avg_temp", 25.0)}] * self.num_servers)],
+                dtype=np.float32,
+            )
+            action = self.baseline.compute_action(server_temps, self._get_current_loads(), self.num_servers)
+            rewards.append(float(reward[0]))
+            temps.append(float(step_info.get("max_temp", 25.0)))
+            powers.append(float(step_info.get("total_power", 0.0)))
+            it_powers.append(float(step_info.get("it_power", step_info.get("total_power", 0.0) * 0.9)))
+            cooling_powers.append(float(step_info.get("cooling_power", step_info.get("total_power", 0.0) * 0.1)))
+            healths.append(float(step_info.get("avg_health", 1.0)))
+            all_actions.append(float(np.mean(action)))
+            if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
-        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+
+        metrics = self._compute_metrics(
+            controller_name=self.baseline.controller_name,
+            rewards=rewards,
+            temps=temps,
+            powers=powers,
+            it_powers=it_powers,
+            cooling_powers=cooling_powers,
+            healths=healths,
+            actions=all_actions,
+            violations=violations,
+        )
         self.baseline_it_powers = it_powers
         self.baseline_cooling_powers = cooling_powers
-        return (rewards, temps, powers, metrics)
+        return rewards, temps, powers, metrics
 
-    def evaluate_model(self, model: PPO, num_steps: int=5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict]]:
-        print('\n🤖 Evaluating SCARI Model...')
+    def evaluate_model(
+        self,
+        model: PPO,
+        model_name: str,
+        num_steps: int = 5000,
+    ) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict[str, Any]]]:
+        print(f"\nEvaluating trained model: {model_name}")
         obs = self.env.reset()
-        t_min = self.config.physics.min_temp
-        t_max = self.config.physics.max_temp
-        explainer = DecisionExplainer(t_min=t_min, t_max=t_max, max_history=num_steps)
-        rewards, temps, powers = ([], [], [])
-        it_powers, cooling_powers, healths, all_actions = ([], [], [], [])
-        decisions_log = []
+        explainer = DecisionExplainer(
+            t_min=self.config.physics.min_temp,
+            t_max=self.config.physics.max_temp,
+            max_history=num_steps,
+        )
+        rewards: List[float] = []
+        temps: List[float] = []
+        powers: List[float] = []
+        it_powers: List[float] = []
+        cooling_powers: List[float] = []
+        healths: List[float] = []
+        all_actions: List[float] = []
+        decisions_log: List[Dict[str, Any]] = []
         violations = 0
-        for step in tqdm(range(num_steps), desc='Model'):
+
+        for step in tqdm(range(num_steps), desc=model_name, leave=False):
             action, _ = model.predict(obs, deterministic=True)
             if step % 50 == 0:
-                explanation = explainer.explain_action(obs, action[0], step)
-                decisions_log.append(explanation)
-            obs, reward, done, info = self.env.step(action)
-            rewards.append(reward[0])
-            temps.append(info[0].get('max_temp', info[0].get('avg_temp', 25.0)))
-            powers.append(info[0].get('total_power', 0.0))
-            it_powers.append(info[0].get('it_power', info[0].get('total_power', 0.0) * 0.9))
-            cooling_powers.append(info[0].get('cooling_power', info[0].get('total_power', 0.0) * 0.1))
-            healths.append(info[0].get('avg_health', 1.0))
-            all_actions.append(np.mean(action[0]))
-            if info[0]['max_temp'] >= self.config.physics.max_temp:
+                decisions_log.append(explainer.explain_action(obs, action[0], step))
+            obs, reward, _, info = self.env.step(action)
+            step_info = info[0]
+            rewards.append(float(reward[0]))
+            temps.append(float(step_info.get("max_temp", step_info.get("avg_temp", 25.0))))
+            powers.append(float(step_info.get("total_power", 0.0)))
+            it_powers.append(float(step_info.get("it_power", step_info.get("total_power", 0.0) * 0.9)))
+            cooling_powers.append(float(step_info.get("cooling_power", step_info.get("total_power", 0.0) * 0.1)))
+            healths.append(float(step_info.get("avg_health", 1.0)))
+            all_actions.append(float(np.mean(action[0])))
+            if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
-        metrics = self._compute_metrics(rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+
+        metrics = self._compute_metrics(
+            controller_name=model_name,
+            rewards=rewards,
+            temps=temps,
+            powers=powers,
+            it_powers=it_powers,
+            cooling_powers=cooling_powers,
+            healths=healths,
+            actions=all_actions,
+            violations=violations,
+        )
         self.model_it_powers = it_powers
         self.model_cooling_powers = cooling_powers
-        return (rewards, temps, powers, metrics, decisions_log)
+        return rewards, temps, powers, metrics, decisions_log
 
-    def _compute_metrics(self, rewards, temps, powers, it_powers, cooling_powers, healths, actions, violations) -> EvaluationMetrics:
-        powers_array = np.array(powers)
-        it_array = np.array(it_powers)
-        temps_array = np.array(temps)
-        thermal_stability = 1.0 - np.std(temps_array) / (np.ptp(temps_array) + 1e-06)
-        window = min(100, len(rewards) // 5)
-        if window > 0:
-            rolling = np.convolve(rewards, np.ones(window) / window, mode='valid')
+    def _compute_metrics(
+        self,
+        controller_name: str,
+        rewards: List[float],
+        temps: List[float],
+        powers: List[float],
+        it_powers: List[float],
+        cooling_powers: List[float],
+        healths: List[float],
+        actions: List[float],
+        violations: int,
+    ) -> EvaluationMetrics:
+        powers_array = np.array(powers, dtype=np.float64)
+        temps_array = np.array(temps, dtype=np.float64)
+        it_array = np.array(it_powers, dtype=np.float64)
+        cooling_array = np.array(cooling_powers, dtype=np.float64)
+
+        thermal_stability = 1.0 - np.std(temps_array) / (np.ptp(temps_array) + 1e-6)
+        power_efficiency = 1.0 - np.mean(cooling_array) / (np.mean(powers_array) + 1e-6)
+        window = min(100, max(1, len(rewards) // 5))
+        if len(rewards) > 1 and window > 1:
+            rolling = np.convolve(rewards, np.ones(window) / window, mode="valid")
             diffs = np.abs(np.diff(rolling))
-            converged_mask = diffs < 0.01 * (np.max(np.abs(rolling)) + 1e-06)
-            conv_time = int(np.argmax(converged_mask)) if converged_mask.any() else len(rewards)
+            threshold = 0.01 * (np.max(np.abs(rolling)) + 1e-6)
+            converged_mask = diffs < threshold
+            convergence_time = int(np.argmax(converged_mask)) if converged_mask.any() else len(rewards)
         else:
-            conv_time = len(rewards)
-        return EvaluationMetrics(total_power_consumption=float(np.sum(powers_array)), average_temperature=float(np.mean(temps_array)), max_temperature=float(np.max(temps_array)), min_temperature=float(np.min(temps_array)), std_temperature=float(np.std(temps_array)), safety_violations=int(violations), avg_fan_speed=float(np.mean(actions)), power_efficiency=float(np.clip(1.0 - np.mean(powers_array) / 5000, 0, 1)), thermal_stability=float(np.clip(thermal_stability, 0, 1)), episode_reward=float(np.mean(rewards)), average_pue=float(np.mean(powers_array / (it_array + 1e-06))), average_health=float(np.mean(healths)), convergence_time=conv_time)
+            convergence_time = len(rewards)
 
-def run_evaluation():
-    BASE_DIR = Path(__file__).parent.parent
-    parser = argparse.ArgumentParser(description='SCARI Performance Evaluation')
-    parser.add_argument('--config', type=str, default=str(BASE_DIR / 'configs/default.yaml'), help='Config path')
-    parser.add_argument('--models', type=str, default=str(BASE_DIR / 'data/models/scari_final.zip'), help='Comma-separated paths to models')
-    parser.add_argument('--steps', type=int, default=5000, help='Evaluation steps')
-    parser.add_argument('--output', type=str, default=str(BASE_DIR / 'outputs/eval'), help='Output directory')
-    parser.add_argument('--seed', type=int, default=42, help='Seed')
+        return EvaluationMetrics(
+            controller_name=controller_name,
+            total_power_consumption=float(np.sum(powers_array)),
+            total_it_power_consumption=float(np.sum(it_array)),
+            total_cooling_power_consumption=float(np.sum(cooling_array)),
+            average_temperature=float(np.mean(temps_array)),
+            max_temperature=float(np.max(temps_array)),
+            min_temperature=float(np.min(temps_array)),
+            std_temperature=float(np.std(temps_array)),
+            safety_violations=int(violations),
+            avg_fan_speed=float(np.mean(actions)),
+            power_efficiency=float(np.clip(power_efficiency, 0.0, 1.0)),
+            thermal_stability=float(np.clip(thermal_stability, 0.0, 1.0)),
+            episode_reward=float(np.mean(rewards) if rewards else 0.0),
+            average_pue=float(np.mean(powers_array / (it_array + 1e-6))),
+            average_health=float(np.mean(healths) if healths else 1.0),
+            convergence_time=convergence_time,
+            total_steps=len(rewards),
+            average_it_power=float(np.mean(it_array) if len(it_array) else 0.0),
+            average_cooling_power=float(np.mean(cooling_array) if len(cooling_array) else 0.0),
+            average_cooling_share=float(np.mean(cooling_array / (powers_array + 1e-6)) if len(powers_array) else 0.0),
+        )
+
+
+def run_evaluation() -> None:
+    parser = argparse.ArgumentParser(description="SCARI Performance Evaluation")
+    parser.add_argument("--config", type=str, help="Config path; if omitted, optimized.yaml is used by default")
+    parser.add_argument("--list-configs", action="store_true", help="List available YAML configs and exit")
+    parser.add_argument(
+        "--models",
+        type=str,
+        default=str(PROJECT_ROOT / "data/models/scari_final.zip"),
+        help="Comma-separated paths to models",
+    )
+    parser.add_argument("--steps", type=int, default=5000, help="Evaluation steps")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=str(PROJECT_ROOT / "outputs/eval"),
+        help="Output directory",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Seed")
     args = parser.parse_args()
+
+    if args.list_configs:
+        print_available_configs()
+        return
+
     from src.envs.datacenter_env import DataCenterEnv
+
     np.random.seed(args.seed)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = choose_config_path(args.config)
     try:
-        cfg = Config.from_yaml(args.config)
-    except Exception:
-        cfg = DEFAULT_CONFIG
+        cfg = Config.from_yaml(config_path)
+    except Exception as exc:
+        logger.error("Failed to load config %s: %s", config_path, exc)
+        try:
+            config_path = resolve_config_file(PREFERRED_CONFIG_PATH)
+            cfg = Config.from_yaml(config_path)
+        except Exception:
+            cfg = DEFAULT_CONFIG
 
-    def make_env():
-        return DataCenterEnv(cfg)
-    env = DummyVecEnv([make_env])
+    env = DummyVecEnv([lambda: DataCenterEnv(cfg)])
     runner = EvaluationRunner(cfg, env)
-    b_rewards, b_temps, b_powers, b_metrics = runner.evaluate_baseline(args.steps)
-    baseline_history = {'temps': b_temps, 'powers': b_powers, 'it_powers': runner.baseline_it_powers, 'cooling_powers': runner.baseline_cooling_powers}
-    model_paths = [p.strip() for p in args.models.split(',') if p.strip()]
-    model_metrics_dict = {}
-    model_data_dict = {}
-    decisions_dict = {}
-    print(f'\n🚀 Evaluating {len(model_paths)} model(s) against Baseline...')
-    for m_path in model_paths:
-        path = Path(m_path)
+    _, baseline_temps, baseline_powers, baseline_metrics = runner.evaluate_baseline(args.steps)
+    baseline_history = {
+        "temps": baseline_temps,
+        "powers": baseline_powers,
+        "it_powers": runner.baseline_it_powers,
+        "cooling_powers": runner.baseline_cooling_powers,
+    }
+
+    model_paths = [item.strip() for item in args.models.split(",") if item.strip()]
+    model_metrics_dict: Dict[str, Dict[str, Any]] = {}
+    model_data_dict: Dict[str, Dict[str, List[float]]] = {}
+    decisions_dict: Dict[str, List[Dict[str, Any]]] = {}
+
+    print(f"\nEvaluating {len(model_paths)} model(s) against {baseline_metrics.controller_name}...")
+    for model_path in model_paths:
+        path = Path(model_path)
         if not path.exists():
-            print(f'⚠️ Model not found: {path}')
+            print(f"Model not found: {path}")
             continue
-        m_name = path.stem.replace('scari_', '').replace('_final', '').upper()
-        if not m_name:
-            m_name = 'SCARI'
+        model_name = path.stem.replace("scari_", "").replace("_final", "").upper() or "SCARI"
         try:
             trained_model = PPO.load(str(path))
-            print(f'\n🤖 Evaluating Model: {m_name}')
-            m_r, m_t, m_p, m_m, m_d = runner.evaluate_model(trained_model, args.steps)
-            model_metrics_dict[m_name] = m_m.to_dict()
-            model_data_dict[m_name] = {'temps': m_t, 'powers': m_p, 'it_powers': runner.model_it_powers, 'cooling_powers': runner.model_cooling_powers}
-            decisions_dict[m_name] = m_d
-        except Exception as e:
-            print(f'❌ Failed to evaluate model {m_name}: {e}')
-    metrics_path = output_dir / 'metrics.json'
-    with open(metrics_path, 'w') as f:
-        json.dump({'baseline': b_metrics.to_dict(), 'models': model_metrics_dict, 'decisions': decisions_dict}, f, indent=4)
-    if model_metrics_dict:
-        print('\n📈 Generating Multi-Model Performance Visualizations...')
-        viz = PerformanceVisualizer(str(output_dir))
-        viz.create_comprehensive_dashboard(b_metrics.to_dict(), model_metrics_dict, baseline_history, model_data_dict)
-        print(f"\n{'=' * 60}")
-        print(f'  ✅ Evaluation complete — results in {output_dir}')
-        print(f"{'=' * 60}")
-        for k, v in model_metrics_dict.items():
-            sav_pct = (b_metrics.total_power_consumption - v['total_power_consumption']) / b_metrics.total_power_consumption * 100
-            print(f'  [{k}] Energy Savings : {sav_pct:+.1f}%')
-            print(f"  [{k}] SCARI PUE      : {v.get('average_pue', 1.0):.3f}")
-            print(f"  [{k}] Max Temperature: {v['max_temperature']:.1f}°C")
-            print(f"  [{k}] Violations     : {v.get('safety_violations', 0)}")
-            print('-' * 60)
-    else:
-        print('❌ No models were successfully evaluated.')
-if __name__ == '__main__':
+            model_rewards, model_temps, model_powers, model_metrics, decisions = runner.evaluate_model(
+                trained_model,
+                model_name=model_name,
+                num_steps=args.steps,
+            )
+            model_metrics_dict[model_name] = model_metrics.to_dict()
+            model_data_dict[model_name] = {
+                "temps": model_temps,
+                "powers": model_powers,
+                "it_powers": runner.model_it_powers,
+                "cooling_powers": runner.model_cooling_powers,
+            }
+            decisions_dict[model_name] = decisions
+        except Exception as exc:
+            print(f"Failed to evaluate model {model_name}: {exc}")
+
+    metrics_path = output_dir / "metrics.json"
+    with metrics_path.open("w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "metadata": {
+                    "config": str(config_path),
+                    "seed": args.seed,
+                    "baseline_controller": baseline_metrics.controller_name,
+                },
+                "baseline": baseline_metrics.to_dict(),
+                "models": model_metrics_dict,
+                "decisions": decisions_dict,
+            },
+            handle,
+            indent=4,
+        )
+
+    if not model_metrics_dict:
+        print("No models were successfully evaluated.")
+        return
+
+    print("\nGenerating performance visualizations...")
+    visualizer = PerformanceVisualizer(str(output_dir))
+    visualizer.create_comprehensive_dashboard(
+        baseline_metrics.to_dict(),
+        model_metrics_dict,
+        baseline_history,
+        model_data_dict,
+    )
+
+    print(f"\n{'=' * 60}")
+    print(f"Evaluation complete - results in {output_dir}")
+    print(f"{'=' * 60}")
+    print(
+        f"Baseline reference : {baseline_metrics.controller_name} "
+        f"(target {runner.baseline.target_temp:.1f}C, PUE {baseline_metrics.average_pue:.3f})"
+    )
+    for name, metrics in model_metrics_dict.items():
+        energy_savings = (
+            (baseline_metrics.total_power_consumption - metrics["total_power_consumption"])
+            / max(baseline_metrics.total_power_consumption, 1e-6)
+            * 100
+        )
+        cooling_savings = (
+            (baseline_metrics.total_cooling_power_consumption - metrics["total_cooling_power_consumption"])
+            / max(baseline_metrics.total_cooling_power_consumption, 1e-6)
+            * 100
+        )
+        print(f"  [{name}] Total savings   : {energy_savings:+.1f}%")
+        print(f"  [{name}] Cooling savings : {cooling_savings:+.1f}%")
+        print(f"  [{name}] SCARI PUE       : {metrics.get('average_pue', 1.0):.3f}")
+        print(f"  [{name}] Avg / Max temp  : {metrics['average_temperature']:.1f}C / {metrics['max_temperature']:.1f}C")
+        print(f"  [{name}] Violations      : {metrics.get('safety_violations', 0)}")
+        print("-" * 60)
+
+
+if __name__ == "__main__":
     run_evaluation()

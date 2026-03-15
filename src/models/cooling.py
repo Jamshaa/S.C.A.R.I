@@ -21,29 +21,30 @@ class CoolingSystem:
     def get_power_consumption(self, flow_rate: float) -> float:
         flow_rate = np.clip(flow_rate, 0.0, 1.0)
         if self.mode == 'AIR':
-            if flow_rate < 0.05:
-                power = 3.0
-            else:
-                base_power = self.config.max_fan_power * flow_rate ** 3.0
-                if 0.4 <= flow_rate <= 0.8:
-                    eff = 1.0
-                elif flow_rate > 0.8:
-                    eff = 1.0 + 0.4 * ((flow_rate - 0.8) / 0.2) ** 2
-                else:
-                    eff = 1.0 + 0.15 * ((0.4 - flow_rate) / 0.4)
-                power = base_power * eff
+            support_power = self.config.distribution_power * (0.25 + 0.75 * flow_rate)
+            variable_power = self.config.max_fan_power * (0.18 * flow_rate + 0.82 * flow_rate ** 2.7)
+            power = self.config.air_idle_power + support_power + variable_power
+            if flow_rate > 0.82:
+                power *= 1.0 + 0.32 * ((flow_rate - 0.82) / 0.18) ** 2
+            elif flow_rate < 0.2:
+                power *= 1.0 + 0.08 * ((0.2 - flow_rate) / 0.2)
         elif self.mode == 'LIQUID':
-            if flow_rate < 0.05:
-                power = self.config.base_pump_power
-            else:
-                variable = self.config.max_pump_power * flow_rate ** 2.2
-                power = self.config.base_pump_power + variable
+            support_power = self.config.base_pump_power + self.config.liquid_idle_power + self.config.distribution_power * (0.08 + 0.22 * flow_rate)
+            variable_power = self.config.max_pump_power * (0.28 * flow_rate + 0.72 * flow_rate ** 2.1)
+            power = support_power + variable_power
         elif self.mode == 'HYBRID':
-            air_power = self._air_sub.get_power_consumption(flow_rate * 0.6)
-            liquid_power = self._liquid_sub.get_power_consumption(flow_rate * 0.4)
-            power = air_power + liquid_power
+            air_power = self._air_sub.get_power_consumption(flow_rate * 0.55)
+            liquid_power = self._liquid_sub.get_power_consumption(flow_rate * 0.45)
+            power = air_power * 0.55 + liquid_power * 0.75 + self.config.hybrid_coordination_power
         else:
             raise ValueError(f'Unknown cooling mode: {self.mode}')
+        if self.mode == 'LIQUID':
+            auxiliary_ratio = max(self.config.auxiliary_power_ratio - 0.08, 0.1)
+        elif self.mode == 'HYBRID':
+            auxiliary_ratio = max(self.config.auxiliary_power_ratio - 0.04, 0.12)
+        else:
+            auxiliary_ratio = self.config.auxiliary_power_ratio
+        power += power * auxiliary_ratio
         power *= 2.0 - self.efficiency_factor
         return float(power)
 

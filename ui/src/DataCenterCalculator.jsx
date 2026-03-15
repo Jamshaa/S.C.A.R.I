@@ -553,7 +553,10 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <ItemIcon size={15} color={analysisOptions[key] ? 'var(--text-inverse)' : 'var(--muted)'} />
+                  {React.createElement(ItemIcon, {
+                    size: 15,
+                    color: analysisOptions[key] ? 'var(--text-inverse)' : 'var(--muted)'
+                  })}
                   <div>
                     <p style={{ fontWeight: 600, fontSize: '13px', color: analysisOptions[key] ? 'var(--text-inverse)' : 'var(--text)' }}>
                       {label}

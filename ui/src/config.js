@@ -1,26 +1,28 @@
+const trimTrailingSlash = (value) => value.replace(/\/+$/, '');
+
 export const getAPIBaseURL = () => {
+  const envBase = import.meta.env.VITE_API_BASE?.trim();
+  if (envBase) {
+    return trimTrailingSlash(envBase);
+  }
+
   const host = window.location.hostname;
-  const port = window.location.port;
   const protocol = window.location.protocol;
 
-  if (host === "localhost" || host === "127.0.0.1" || host.startsWith("127.")) {
+  if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('127.')) {
     return `${protocol}//${host}:8000`;
   }
 
-  if (host.includes(".app.github.dev")) {
-    const baseHost = host.split("-").slice(0, -2).join("-");
+  if (host.includes('.app.github.dev')) {
+    const baseHost = host.split('-').slice(0, -2).join('-');
     return `${protocol}//${baseHost}-8000.app.github.dev`;
   }
 
-  if (host.includes("netlify") || host.includes("vercel")) {
+  if (host.includes('netlify') || host.includes('vercel')) {
     return `${protocol}//${host}/api`;
   }
 
-  if (port) {
-    return `${protocol}//${host}:${port}`;
-  }
-
-  return `${protocol}//${host}`;
+  return `${protocol}//${host}:8000`;
 };
 
 export const API_BASE = getAPIBaseURL();

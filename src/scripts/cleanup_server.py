@@ -6,13 +6,20 @@ def kill_port_8000():
         killed = False
         for proc in psutil.process_iter(['pid', 'name']):
             try:
-                connections = proc.connections()
+                proc_name = (proc.info['name'] or '').lower()
+                if 'python' not in proc_name and 'uvicorn' not in proc_name:
+                    continue
+                connections = proc.net_connections(kind='inet')
                 for conn in connections:
-                    if conn.laddr.port == 8000:
-                        print(f"   - Killing process {proc.info['name']} (PID {proc.info['pid']})")
-                        proc.kill()
+                    if getattr(conn.laddr, 'port', None) == 8000:
+                        print(f"   - Stopping process {proc.info['name']} (PID {proc.info['pid']})")
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
                         killed = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
         if killed:
             print('✅ Port 8000 processes terminated.')

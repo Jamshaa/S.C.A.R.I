@@ -76,6 +76,36 @@ export const JAPAN = [
 export const UK = [
     [50, -5], [52, -4], [56, -6], [58, -3], [58, -1], [54, 0], [51, 1], [50, -5]
 ];
+export const MADAGASCAR = [
+    [-12, 49], [-15, 50], [-18, 49], [-22, 47], [-25, 46], [-24, 44], [-20, 45], [-16, 46], [-13, 48], [-12, 49]
+];
+export const ICELAND = [
+    [64, -24], [66, -24], [67, -20], [66, -15], [64, -13], [63, -17], [63, -22], [64, -24]
+];
+export const KOREA = [
+    [43, 124], [41, 126], [38, 128], [35, 128], [34, 126], [36, 125], [39, 126], [41, 127], [43, 124]
+];
+export const BORNEO = [
+    [7, 109], [6, 114], [3, 117], [0, 118], [-2, 116], [-3, 113], [-1, 110], [2, 109], [5, 108], [7, 109]
+];
+export const SUMATRA = [
+    [6, 95], [4, 97], [1, 100], [-2, 102], [-5, 104], [-6, 102], [-3, 99], [0, 97], [3, 95], [6, 95]
+];
+export const JAVA = [
+    [-6, 105], [-6, 108], [-7, 111], [-8, 114], [-8, 112], [-8, 108], [-7, 105], [-6, 105]
+];
+export const PHILIPPINES = [
+    [18, 121], [16, 123], [14, 122], [12, 123], [10, 125], [8, 124], [9, 121], [12, 120], [15, 121], [18, 121]
+];
+export const NEW_ZEALAND_NORTH = [
+    [-34, 173], [-36, 175], [-38, 176], [-39, 174], [-38, 172], [-36, 171], [-34, 173]
+];
+export const NEW_ZEALAND_SOUTH = [
+    [-41, 172], [-43, 173], [-45, 170], [-46, 167], [-45, 166], [-43, 168], [-41, 172]
+];
+export const PAPUA = [
+    [-2, 140], [-3, 144], [-5, 148], [-7, 150], [-9, 147], [-8, 143], [-6, 141], [-3, 140], [-2, 140]
+];
 export const ALL_CONTINENTS = [
     { name: 'North America', coords: NORTH_AMERICA },
     { name: 'Central America', coords: CENTRAL_AMERICA },
@@ -91,4 +121,14 @@ export const ALL_CONTINENTS = [
     { name: 'India', coords: INDIA },
     { name: 'Japan', coords: JAPAN },
     { name: 'UK', coords: UK },
+    { name: 'Madagascar', coords: MADAGASCAR },
+    { name: 'Iceland', coords: ICELAND },
+    { name: 'Korea', coords: KOREA },
+    { name: 'Borneo', coords: BORNEO },
+    { name: 'Sumatra', coords: SUMATRA },
+    { name: 'Java', coords: JAVA },
+    { name: 'Philippines', coords: PHILIPPINES },
+    { name: 'New Zealand North', coords: NEW_ZEALAND_NORTH },
+    { name: 'New Zealand South', coords: NEW_ZEALAND_SOUTH },
+    { name: 'Papua', coords: PAPUA },
 ];

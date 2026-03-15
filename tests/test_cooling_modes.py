@@ -90,6 +90,18 @@ class TestCoolingSystem:
         liq_cap = liquid.get_cooling_capacity(1.0, 25.0, 50.0)
         assert liq_cap > air_cap
 
+    def test_air_has_higher_midload_power_than_liquid(self):
+        air = CoolingSystem('AIR')
+        liquid = CoolingSystem('LIQUID')
+        assert air.get_power_consumption(0.5) > liquid.get_power_consumption(0.5)
+
+    def test_hybrid_power_sits_between_air_and_liquid(self):
+        air = CoolingSystem('AIR')
+        liquid = CoolingSystem('LIQUID')
+        hybrid = CoolingSystem('HYBRID')
+        hybrid_power = hybrid.get_power_consumption(0.6)
+        assert air.get_power_consumption(0.6) > hybrid_power > liquid.get_power_consumption(0.6)
+
     def test_hybrid_has_subsystems(self):
         hybrid = CoolingSystem('HYBRID')
         assert hasattr(hybrid, '_air_sub')

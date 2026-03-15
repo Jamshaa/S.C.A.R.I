@@ -9,43 +9,62 @@ physics:
   max_temp_change_per_second: 5.0
 cooling:
   mode: "LIQUID"
-  max_fan_power: 120.0
-  max_pump_power: 60.0
-  base_pump_power: 8.0
-  air_cooling_capacity: 1200.0
-  liquid_cooling_capacity: 15000.0
-  natural_convection: 8.0
+  max_fan_power: 40.0
+  max_pump_power: 52.0
+  base_pump_power: 10.0
+  air_cooling_capacity: 900.0
+  liquid_cooling_capacity: 22000.0
+  natural_convection: 9.0
+  liquid_idle_power: 7.0
+  distribution_power: 5.0
+  auxiliary_power_ratio: 0.18
 reward:
-  energy_coefficient: 30.0
-  safe_threshold: 32.0
-  critical_limit: 40.0
-  thermal_penalty_coefficient: 10.0
-  emergency_penalty: 800.0
-  energy_efficiency_bonus: 25.0
-  energy_weight: 4.0
-  safety_weight: 1.0
-  stability_weight: 0.2
-  profile: "ENERGY_FIRST"
+  energy_coefficient: 35.0
+  safe_threshold: 54.0
+  critical_limit: 58.0
+  thermal_penalty_coefficient: 13.0
+  emergency_penalty: 1900.0
+  energy_efficiency_bonus: 24.0
+  energy_weight: 4.6
+  safety_weight: 2.1
+  stability_weight: 0.4
+  hard_limit: 60.0
+  warning_margin: 4.5
+  preemptive_penalty_coefficient: 46.0
+  hard_limit_penalty: 2900.0
+  cooling_power_weight: 2.0
+  overcooling_penalty_coefficient: 0.45
+  sweet_spot_low: 55.5
+  sweet_spot_high: 58.0
+  sweet_spot_bonus: 15.0
+  profile: "PRODUCTION_SAFE"
 training:
-  timesteps: 600000
-  learning_rate: 0.00015
+  timesteps: 1300000
+  learning_rate: 0.00012
   n_steps: 4096
-  batch_size: 128
-  gamma: 0.995
-  gae_lambda: 0.95
-  ent_coef: 0.005
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  n_epochs: 10
-  clip_range: 0.2
+  batch_size: 256
+  gamma: 0.999
+  gae_lambda: 0.97
+  ent_coef: 0.0025
+  vf_coef: 0.72
+  max_grad_norm: 0.35
+  n_epochs: 14
+  clip_range: 0.12
   normalize_advantage: true
   normalize_observation: true
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_steps: 2000
-  episode_length: 2000
-  max_load_change_per_step: 0.08
-  min_initial_load: 0.3
-  max_initial_load: 0.85
-  load_std: 0.08
+  max_steps: 3400
+  episode_length: 3400
+  max_load_change_per_step: 0.055
+  min_initial_load: 0.35
+  max_initial_load: 0.92
+  load_std: 0.055
+  terminate_on_hard_limit: true
+  safety_override: true
+  safety_override_temp: 55.0
+  safety_min_action: 0.14
+  safety_max_action: 1.0
+  safety_lookahead_weight: 0.42
+  safety_load_weight: 0.2

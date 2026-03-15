@@ -40,6 +40,7 @@ logs/*
 !logs/.gitkeep
 data/models/*.zip
 data/models/*.pkl
+data/models/config.json
 data/results/*
 outputs/eval/*
 !outputs/eval/.gitkeep

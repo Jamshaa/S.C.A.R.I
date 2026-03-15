@@ -33,7 +33,7 @@
   --shadow-lg:       0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
   --font:            'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono:       'Geist Mono', 'Fira Code', 'Consolas', monospace;
-  --sidebar-width:   280px;
+  --sidebar-width:   360px;
   --text-primary:    var(--text);
   --text-muted:      var(--muted);
   --accent-primary:  var(--accent);
@@ -119,7 +119,7 @@ h3 {
   min-width: var(--sidebar-width);
   background: var(--surface);
   border-right: 1px solid var(--border);
-  padding: 24px 20px;
+  padding: 26px 22px;
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -634,6 +634,79 @@ select {
   border-bottom: none;
   padding-bottom: 0;
 }
+.registry-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.registry-controls {
+  margin-bottom: 14px;
+}
+.registry-list-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 290px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--surface) 100%);
+  box-shadow: var(--shadow-xs);
+}
+.registry-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.registry-list {
+  flex: 1;
+  min-height: 230px;
+  max-height: clamp(240px, 36vh, 420px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.registry-compare-row {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 11px 12px;
+  margin-bottom: 10px;
+  background: var(--accent-subtle);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+.registry-compare-row:hover {
+  border-color: rgba(37, 99, 235, 0.5);
+  background: rgba(37, 99, 235, 0.12);
+}
+.registry-item {
+  align-items: flex-start;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+}
+.registry-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.registry-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sidebar-history-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -671,5 +744,11 @@ select {
   }
   .app-container, .layout {
     flex-direction: column;
+  }
+  .registry-list-shell {
+    min-height: 240px;
+  }
+  .registry-list {
+    max-height: 300px;
   }
 }

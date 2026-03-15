@@ -15,37 +15,56 @@ cooling:
   air_cooling_capacity: 1200.0
   liquid_cooling_capacity: 15000.0
   natural_convection: 8.0
+  air_idle_power: 13.5
+  distribution_power: 9.0
+  auxiliary_power_ratio: 0.30
 reward:
-  energy_coefficient: 30.0
-  safe_threshold: 32.0
-  critical_limit: 40.0
-  thermal_penalty_coefficient: 10.0
-  emergency_penalty: 800.0
-  energy_efficiency_bonus: 25.0
-  energy_weight: 4.0
-  safety_weight: 1.0
-  stability_weight: 0.2
+  energy_coefficient: 34.0
+  safe_threshold: 52.0
+  critical_limit: 58.0
+  thermal_penalty_coefficient: 12.0
+  emergency_penalty: 1800.0
+  energy_efficiency_bonus: 22.0
+  energy_weight: 4.5
+  safety_weight: 2.0
+  stability_weight: 0.45
+  hard_limit: 60.0
+  warning_margin: 5.0
+  preemptive_penalty_coefficient: 44.0
+  hard_limit_penalty: 2600.0
+  cooling_power_weight: 2.8
+  overcooling_penalty_coefficient: 0.55
+  sweet_spot_low: 55.0
+  sweet_spot_high: 58.0
+  sweet_spot_bonus: 14.0
   profile: "ENERGY_FIRST"
 training:
-  timesteps: 800000
-  learning_rate: 0.0002
-  n_steps: 2048
-  batch_size: 128
-  gamma: 0.997
-  gae_lambda: 0.96
-  ent_coef: 0.008
-  vf_coef: 0.6
+  timesteps: 1200000
+  learning_rate: 0.00015
+  n_steps: 4096
+  batch_size: 256
+  gamma: 0.999
+  gae_lambda: 0.97
+  ent_coef: 0.003
+  vf_coef: 0.7
   max_grad_norm: 0.4
   n_epochs: 12
-  clip_range: 0.15
+  clip_range: 0.12
   normalize_advantage: true
   normalize_observation: true
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_load_change_per_step: 0.08
-  min_initial_load: 0.3
-  max_initial_load: 0.85
-  load_std: 0.08
+  max_load_change_per_step: 0.06
+  min_initial_load: 0.35
+  max_initial_load: 0.9
+  load_std: 0.06
   max_steps: 3000
   episode_length: 3000
+  terminate_on_hard_limit: true
+  safety_override: true
+  safety_override_temp: 55.5
+  safety_min_action: 0.18
+  safety_max_action: 1.0
+  safety_lookahead_weight: 0.4
+  safety_load_weight: 0.2
