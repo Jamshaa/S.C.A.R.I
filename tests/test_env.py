@@ -68,8 +68,6 @@ def test_reward_weights_shift_tradeoff_toward_energy_savings():
     conservative_cfg.reward.safe_threshold = 58.0
     conservative_cfg.reward.hard_limit = 60.0
     conservative_cfg.reward.critical_limit = 59.5
-    conservative_cfg.reward.sweet_spot_low = 53.0
-    conservative_cfg.reward.sweet_spot_high = 59.5
     conservative_cfg.reward.energy_weight = 1.0
     conservative_cfg.reward.safety_weight = 2.0
 
@@ -79,8 +77,6 @@ def test_reward_weights_shift_tradeoff_toward_energy_savings():
     aggressive_cfg.reward.safe_threshold = 58.0
     aggressive_cfg.reward.hard_limit = 60.0
     aggressive_cfg.reward.critical_limit = 59.5
-    aggressive_cfg.reward.sweet_spot_low = 53.0
-    aggressive_cfg.reward.sweet_spot_high = 59.5
     aggressive_cfg.reward.energy_weight = 5.5
     aggressive_cfg.reward.safety_weight = 0.6
 

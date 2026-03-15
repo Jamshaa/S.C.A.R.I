@@ -231,12 +231,12 @@ python -m pytest tests/ --cov=src --cov-report=html
 
 Training profiles live in `configs/`. `optimized.yaml` is the project default for UI, API and CLI unless you explicitly pass another YAML. It includes:
 
-- **Physics**: Realistic thermal mass, power ranges, temperature limits
-- **Cooling**: Industrial fan/pump power, air and liquid cooling capacities
-- **Reward**: Safety-first weighting with energy efficiency as secondary objective
-- **Training**: PPO hyperparameters tuned for thermal stability convergence
+- **Physics**: Enterprise datacenter thermal mass, power ranges, and temperature limits
+- **Cooling**: Air-cooled baseline calibrated toward a traditional enterprise facility with explicit plant overhead
+- **Reward**: Total-power-first objective with thermal guardrails and minimal reward shaping
+- **Training**: PPO hyperparameters tuned for stable convergence on the simplified reward
 
-For the stricter goal of maximizing savings while keeping an operational ceiling of `60°C`, use `configs/max_savings_safe.yaml`. It enables a hard thermal limit, pre-emptive penalties near the ceiling, and a safety override that raises cooling before the policy can drift into unsafe temperatures.
+For the stricter goal of maximizing savings while keeping an operational ceiling of `60C`, use `configs/max_savings_safe.yaml`. It keeps the total-power-first reward, but tightens the thermal guardrails and safety override so the policy stays more conservative near the limit.
 
 ### Choosing a YAML
 

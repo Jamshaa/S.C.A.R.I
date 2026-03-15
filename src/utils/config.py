@@ -118,28 +118,19 @@ class CoolingConfig:
 
 @dataclass
 class RewardConfig:
-    target_temp_min: float = 18.0
-    target_temp_max: float = 27.0
-    safety_limit: float = 35.0
     critical_limit: float = 45.0
     energy_weight: float = 3.0
     safety_weight: float = 1.5
     stability_weight: float = 0.3
-    profile: str = 'ENERGY_FIRST'
+    profile: str = 'TOTAL_POWER_FIRST'
     energy_coefficient: float = 25.0
     thermal_penalty_coefficient: float = 8.0
     safe_threshold: float = 35.0
     emergency_penalty: float = 500.0
-    energy_efficiency_bonus: float = 20.0
     hard_limit: float = 60.0
     warning_margin: float = 6.0
     preemptive_penalty_coefficient: float = 30.0
     hard_limit_penalty: float = 2000.0
-    cooling_power_weight: float = 2.0
-    overcooling_penalty_coefficient: float = 0.35
-    sweet_spot_low: float = 54.0
-    sweet_spot_high: float = 58.5
-    sweet_spot_bonus: float = 12.0
 
 @dataclass
 class TrainingConfig:
@@ -167,7 +158,6 @@ class EnvironmentConfig:
     min_initial_load: float = 0.3
     max_initial_load: float = 0.85
     load_std: float = 0.08
-    episode_length: int = 2000
     terminate_on_hard_limit: bool = True
     safety_override: bool = True
     safety_override_temp: float = 56.0

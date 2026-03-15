@@ -133,27 +133,16 @@ class DataCenterEnv(gym.Env):
         cooling_power = sum((s['cooling_power'] for s in stats))
         facility_power = self.rack.get_facility_power()
         total_power = it_power + cooling_power + facility_power
-        avg_temp = np.mean([s['temp'] for s in stats])
         max_temp = np.max([s['temp'] for s in stats])
         avg_health = np.mean([s['health'] for s in stats])
-        pue = total_power / (it_power + 1e-06)
         cfg = self.config.reward
         cooling_ceiling = self.num_servers * max(self.config.cooling.max_fan_power, self.config.cooling.max_pump_power, 1.0)
         facility_ceiling = self.config.cooling.facility_base_power + self.config.physics.p_max * self.num_servers * self.config.cooling.facility_power_ratio
         max_possible_power = self.config.physics.p_max * self.num_servers + cooling_ceiling + facility_ceiling
         power_fraction = total_power / max_possible_power
-        cooling_fraction = cooling_power / (cooling_ceiling + 1e-06)
         energy_scale = max(cfg.energy_weight, 0.1)
         safety_scale = max(cfg.safety_weight, 0.1)
         energy_reward = energy_scale * cfg.energy_coefficient * (1.0 - power_fraction)
-        if pue < 1.12:
-            pue_bonus = energy_scale * cfg.energy_efficiency_bonus * 1.15
-        elif pue < 1.24:
-            pue_bonus = energy_scale * cfg.energy_efficiency_bonus * (1.24 - pue) / 0.12
-        else:
-            pue_bonus = 0.0
-        sweet_spot_bonus = energy_scale * cfg.sweet_spot_bonus if cfg.sweet_spot_low <= max_temp <= cfg.sweet_spot_high else 0.0
-        cooling_penalty = energy_scale * cfg.cooling_power_weight * cooling_fraction * cfg.energy_coefficient
         thermal_penalty = 0.0
         hard_limit = self._get_hard_limit()
         warning_start = max(cfg.safe_threshold, hard_limit - cfg.warning_margin)
@@ -182,12 +171,7 @@ class DataCenterEnv(gym.Env):
         health_penalty = 0.0
         if avg_health < 0.9:
             health_penalty = safety_scale * 8.0 * (1.0 - avg_health)
-        overcooling_penalty = 0.0
-        efficient_floor = max(self.config.physics.ambient_temp + 12.0, cfg.sweet_spot_low - 7.0)
-        if avg_temp < efficient_floor and cooling_fraction > 0.18:
-            overcooling_gap = efficient_floor - avg_temp
-            overcooling_penalty = energy_scale * cfg.overcooling_penalty_coefficient * overcooling_gap * (1.0 + cooling_fraction)
-        reward = energy_reward + pue_bonus + sweet_spot_bonus - cooling_penalty - thermal_penalty - jitter_penalty - health_penalty - overcooling_penalty
+        reward = energy_reward - thermal_penalty - jitter_penalty - health_penalty
         return float(reward)
 
     def render(self, mode='human'):

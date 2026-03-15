@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import src.evaluate as evaluate_module
 import src.train as train_module
+from src.utils.config import Config
 
 
 class _FakeTTY:
@@ -24,3 +25,17 @@ def test_train_uses_default_config_when_stdout_is_not_interactive(monkeypatch):
     monkeypatch.setattr(train_module.sys, "stdout", _FakeTTY(False))
     config_path = train_module.choose_config_path(None)
     assert config_path.name == "optimized.yaml"
+
+
+def test_apply_training_overrides_preserves_yaml_profile_when_not_provided():
+    cfg = Config.from_yaml("configs/optimized.yaml")
+    args = SimpleNamespace(timesteps=None, profile=None, cooling_mode="AIR")
+    updated = train_module.apply_training_overrides(cfg, args)
+    assert updated.reward.profile == "TOTAL_POWER_FIRST"
+
+
+def test_apply_training_overrides_can_override_profile_label():
+    cfg = Config.from_yaml("configs/optimized.yaml")
+    args = SimpleNamespace(timesteps=None, profile="EXPERIMENT_A", cooling_mode="AIR")
+    updated = train_module.apply_training_overrides(cfg, args)
+    assert updated.reward.profile == "EXPERIMENT_A"

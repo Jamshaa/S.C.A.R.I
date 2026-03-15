@@ -1,10 +1,8 @@
 import argparse
-import sys
 import logging
 from pathlib import Path
 import re
 import sys
-import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -40,6 +38,19 @@ def print_available_configs() -> None:
         marker = ' (default)' if config_path.resolve() == PREFERRED_CONFIG_PATH.resolve() else ''
         print(f'- {config_path.name}{marker}')
 
+
+def apply_training_overrides(cfg: Config, args: argparse.Namespace) -> Config:
+    if args.timesteps:
+        cfg.training.timesteps = args.timesteps
+    if getattr(args, 'profile', None):
+        cfg.reward.profile = args.profile
+    cfg.cooling.mode = args.cooling_mode.upper()
+    if cfg.cooling.mode in COOLING_COST_DB:
+        db = COOLING_COST_DB[cfg.cooling.mode]
+        cfg.cooling.capex_per_server = db['capex_per_server_eur']
+        cfg.cooling.opex_per_server_year = db['opex_per_server_year_eur']
+    return cfg
+
 def run_training():
     parser = argparse.ArgumentParser(description='S.C.A.R.I: Advanced Datacenter Thermal Management Training')
     base_dir = Path(__file__).parent.parent
@@ -52,7 +63,7 @@ def run_training():
     parser.add_argument('--log-dir', type=str, default=str(default_logs))
     parser.add_argument('--device', type=str, default='auto')
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--profile', type=str, default='ENERGY_FIRST', choices=['ENERGY_FIRST', 'BALANCED', 'PRODUCTION_SAFE'])
+    parser.add_argument('--profile', type=str, help='Optional metadata label for the run; does not change reward logic')
     parser.add_argument('--output-name', type=str, default='scari_final')
     parser.add_argument('--cooling-mode', type=str, default='AIR', choices=['AIR', 'LIQUID', 'HYBRID'], help='Cooling system type: AIR, LIQUID, or HYBRID')
     args = parser.parse_args()
@@ -78,15 +89,7 @@ def run_training():
             cfg = Config.from_yaml(config_path)
         except Exception:
             cfg = DEFAULT_CONFIG
-    if args.timesteps:
-        cfg.training.timesteps = args.timesteps
-    if args.profile:
-        cfg.reward.profile = args.profile
-    cfg.cooling.mode = args.cooling_mode.upper()
-    if cfg.cooling.mode in COOLING_COST_DB:
-        db = COOLING_COST_DB[cfg.cooling.mode]
-        cfg.cooling.capex_per_server = db['capex_per_server_eur']
-        cfg.cooling.opex_per_server_year = db['opex_per_server_year_eur']
+    cfg = apply_training_overrides(cfg, args)
     num_servers = cfg.environment.num_racks * cfg.environment.servers_per_rack
     cost_summary = cfg.cooling.get_cost_summary(num_servers)
     print(f'\n📂 Configuration:')

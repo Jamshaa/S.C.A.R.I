@@ -26,7 +26,6 @@ reward:
   critical_limit: 56.5
   thermal_penalty_coefficient: 9.0
   emergency_penalty: 1700.0
-  energy_efficiency_bonus: 4.0
   energy_weight: 6.3
   safety_weight: 1.8
   stability_weight: 0.30
@@ -34,11 +33,6 @@ reward:
   warning_margin: 3.2
   preemptive_penalty_coefficient: 28.0
   hard_limit_penalty: 2400.0
-  cooling_power_weight: 0.78
-  overcooling_penalty_coefficient: 0.22
-  sweet_spot_low: 53.5
-  sweet_spot_high: 55.3
-  sweet_spot_bonus: 5.0
   profile: "TOTAL_POWER_LIQUID"
 training:
   timesteps: 1300000
@@ -58,7 +52,6 @@ environment:
   num_racks: 1
   servers_per_rack: 10
   max_steps: 3400
-  episode_length: 3400
   max_load_change_per_step: 0.055
   min_initial_load: 0.35
   max_initial_load: 0.92

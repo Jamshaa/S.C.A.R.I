@@ -1,4 +1,4 @@
-from src.utils.config import get_available_config_paths, resolve_config_file
+from src.utils.config import Config, get_available_config_paths, resolve_config_file
 
 
 def test_optimized_is_the_preferred_config():
@@ -12,3 +12,16 @@ def test_available_profiles_match_supported_yaml_set():
     assert 'liquid.yaml' in names
     assert 'hybrid.yaml' in names
     assert 'default.yaml' not in names
+
+
+def test_default_config_schema_matches_simplified_reward_shape():
+    reward_keys = set(Config().to_dict()['reward'])
+    environment_keys = set(Config().to_dict()['environment'])
+
+    assert 'energy_efficiency_bonus' not in reward_keys
+    assert 'cooling_power_weight' not in reward_keys
+    assert 'overcooling_penalty_coefficient' not in reward_keys
+    assert 'sweet_spot_low' not in reward_keys
+    assert 'sweet_spot_high' not in reward_keys
+    assert 'sweet_spot_bonus' not in reward_keys
+    assert 'episode_length' not in environment_keys
