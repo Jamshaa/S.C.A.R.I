@@ -59,7 +59,7 @@ class BaselineController:
         target_temp: float = 50.0,
         min_action: float = 0.18,
         max_action: float = 1.0,
-        controller_name: str = "REAL_WORLD_PID",
+        controller_name: str = "BASELINE",
     ):
         self.target_temp = float(target_temp)
         self.min_action = float(min_action)
@@ -111,7 +111,7 @@ class BaselineController:
 def choose_config_path(config_argument: str | None) -> Path:
     if config_argument:
         return resolve_config_file(config_argument)
-    if sys.stdin.isatty():
+    if sys.stdin.isatty() and sys.stdout.isatty():
         print(f"\nNo --config specified. Press Enter to use {PREFERRED_CONFIG_PATH.name} or choose another profile.")
         return prompt_for_config_selection(PREFERRED_CONFIG_PATH)
     return resolve_config_file(PREFERRED_CONFIG_PATH)
@@ -124,20 +124,21 @@ def print_available_configs() -> None:
 
 
 def build_realistic_baseline(config: Config) -> BaselineController:
-    conservative_target = min(config.reward.safe_threshold - 1.5, config.reward.hard_limit - 8.0)
+    conservative_target = min(config.reward.safe_threshold - 2.5, config.reward.hard_limit - 10.0)
     conservative_target = max(config.physics.ambient_temp + 17.0, conservative_target)
     conservative_target = min(conservative_target, config.reward.hard_limit - 5.0)
     return BaselineController(
         target_temp=conservative_target,
         min_action=max(0.16, config.environment.safety_min_action),
-        controller_name="REAL_WORLD_PID",
+        controller_name="BASELINE",
     )
 
 
 class EvaluationRunner:
-    def __init__(self, config: Config, env: Any):
+    def __init__(self, config: Config, env: Any, evaluation_seed: Optional[int] = None):
         self.config = config
         self.env = env
+        self.evaluation_seed = evaluation_seed
         if hasattr(env, "get_attr"):
             self.num_servers = env.get_attr("num_servers")[0]
         else:
@@ -147,6 +148,11 @@ class EvaluationRunner:
         self.baseline_cooling_powers: List[float] = []
         self.model_it_powers: List[float] = []
         self.model_cooling_powers: List[float] = []
+
+    def _reset_env(self) -> Any:
+        if self.evaluation_seed is not None and hasattr(self.env, "seed"):
+            self.env.seed(self.evaluation_seed)
+        return self.env.reset()
 
     def _get_current_loads(self) -> Optional[np.ndarray]:
         if hasattr(self.env, "get_attr"):
@@ -163,7 +169,7 @@ class EvaluationRunner:
             f"(target={self.baseline.target_temp:.1f}C)"
         )
         self.baseline.reset()
-        self.env.reset()
+        self._reset_env()
         rewards: List[float] = []
         temps: List[float] = []
         powers: List[float] = []
@@ -215,7 +221,7 @@ class EvaluationRunner:
         num_steps: int = 5000,
     ) -> Tuple[List[float], List[float], List[float], EvaluationMetrics, List[Dict[str, Any]]]:
         print(f"\nEvaluating trained model: {model_name}")
-        obs = self.env.reset()
+        obs = self._reset_env()
         explainer = DecisionExplainer(
             t_min=self.config.physics.min_temp,
             t_max=self.config.physics.max_temp,
@@ -356,7 +362,7 @@ def run_evaluation() -> None:
             cfg = DEFAULT_CONFIG
 
     env = DummyVecEnv([lambda: DataCenterEnv(cfg)])
-    runner = EvaluationRunner(cfg, env)
+    runner = EvaluationRunner(cfg, env, evaluation_seed=args.seed)
     _, baseline_temps, baseline_powers, baseline_metrics = runner.evaluate_baseline(args.steps)
     baseline_history = {
         "temps": baseline_temps,
@@ -438,13 +444,7 @@ def run_evaluation() -> None:
             / max(baseline_metrics.total_power_consumption, 1e-6)
             * 100
         )
-        cooling_savings = (
-            (baseline_metrics.total_cooling_power_consumption - metrics["total_cooling_power_consumption"])
-            / max(baseline_metrics.total_cooling_power_consumption, 1e-6)
-            * 100
-        )
         print(f"  [{name}] Total savings   : {energy_savings:+.1f}%")
-        print(f"  [{name}] Cooling savings : {cooling_savings:+.1f}%")
         print(f"  [{name}] SCARI PUE       : {metrics.get('average_pue', 1.0):.3f}")
         print(f"  [{name}] Avg / Max temp  : {metrics['average_temperature']:.1f}C / {metrics['max_temperature']:.1f}C")
         print(f"  [{name}] Violations      : {metrics.get('safety_violations', 0)}")

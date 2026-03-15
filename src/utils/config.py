@@ -97,6 +97,8 @@ class CoolingConfig:
     distribution_power: float = 8.0
     auxiliary_power_ratio: float = 0.24
     hybrid_coordination_power: float = 4.0
+    facility_base_power: float = 0.0
+    facility_power_ratio: float = 0.0
     capex_per_server: float = 150.0
     opex_per_server_year: float = 55.0
 

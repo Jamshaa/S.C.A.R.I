@@ -29,6 +29,10 @@ const fmtSteps = (n) => {
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return n.toString();
 };
+const normalizeBaselineLabel = (value) => {
+  const raw = (value || 'BASELINE').trim();
+  return raw.toUpperCase() === 'REAL_WORLD_PID' ? 'BASELINE' : raw;
+};
 const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
@@ -865,11 +869,8 @@ const App = () => {
                   s = m[bestModelName];
                 }
                 if (!s) return null;
-                const baselineLabel = b.controller_name || 'BASELINE';
+                const baselineLabel = normalizeBaselineLabel(b.controller_name);
                 const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
-                const coolingSavings = typeof s.total_cooling_power_consumption === 'number' && b.total_cooling_power_consumption > 0
-                  ? (b.total_cooling_power_consumption - s.total_cooling_power_consumption) / b.total_cooling_power_consumption
-                  : 0;
                 const metrics = [
                   {
                     label: 'Best Power Reduction',
@@ -877,13 +878,6 @@ const App = () => {
                     icon: TrendingDown,
                     color: 'var(--success)',
                     desc: `vs ${baselineLabel}`
-                  },
-                  {
-                    label: 'Cooling Reduction',
-                    value: `${(coolingSavings * 100).toFixed(1)}%`,
-                    icon: Wind,
-                    color: 'var(--accent)',
-                    desc: `Cooling-only savings vs ${baselineLabel}`
                   },
                   {
                     label: `Best PUE (${bestModelName})`,

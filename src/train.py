@@ -29,7 +29,7 @@ def normalize_output_name(value: str) -> str:
 def choose_config_path(config_argument: str | None) -> Path:
     if config_argument:
         return resolve_config_file(config_argument)
-    if sys.stdin.isatty():
+    if sys.stdin.isatty() and sys.stdout.isatty():
         print(f'\nNo --config specified. Press Enter to use {PREFERRED_CONFIG_PATH.name} or choose another profile.')
         return prompt_for_config_selection(PREFERRED_CONFIG_PATH)
     return resolve_config_file(PREFERRED_CONFIG_PATH)

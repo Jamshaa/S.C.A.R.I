@@ -38,6 +38,11 @@ class PerformanceVisualizer:
             "#ec4899",
             "#14b8a6",
         ]
+
+    @staticmethod
+    def _normalize_baseline_label(value: str) -> str:
+        raw = (value or "Baseline").strip()
+        return "BASELINE" if raw.upper() == "REAL_WORLD_PID" else raw
         plt.style.use("default")
         plt.rcParams.update(
             {
@@ -181,7 +186,7 @@ class PerformanceVisualizer:
         ax.grid(True, alpha=0.3)
 
     def _plot_pue_comparison(self, ax, baseline_metrics, model_metrics_dict) -> None:
-        baseline_label = baseline_metrics.get("controller_name", "Baseline")
+        baseline_label = self._normalize_baseline_label(baseline_metrics.get("controller_name", "Baseline"))
         names = [baseline_label] + list(model_metrics_dict.keys())
         pue_values = [baseline_metrics.get("average_pue", 1.0)] + [metrics.get("average_pue", 1.0) for metrics in model_metrics_dict.values()]
         colors = [self.colors["baseline"]] + [self._get_color(name, index) for index, name in enumerate(model_metrics_dict.keys())]
@@ -225,7 +230,7 @@ class PerformanceVisualizer:
             y_pos - bar_height * num_models / 2,
             baseline_scores,
             bar_height,
-            label=baseline_metrics.get("controller_name", "Baseline"),
+            label=self._normalize_baseline_label(baseline_metrics.get("controller_name", "Baseline")),
             color=self.colors["baseline"],
             alpha=0.8,
         )
@@ -275,7 +280,7 @@ class PerformanceVisualizer:
             f"        - PUE Efficiency : {best_pue:.3f}\n"
             "\n"
             f"        MODELS TESTED    : {len(model_metrics_dict)}\n"
-            f"        BASELINE LABEL   : {baseline_metrics.get('controller_name', 'Baseline')}\n"
+            f"        BASELINE LABEL   : {self._normalize_baseline_label(baseline_metrics.get('controller_name', 'Baseline'))}\n"
             f"        BASELINE PUE     : {baseline_metrics.get('average_pue', 1.0):.3f}\n"
             "\n"
             "        Deep comparisons are available\n"

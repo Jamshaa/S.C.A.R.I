@@ -34,7 +34,11 @@ class Rack:
 
     def get_total_power(self) -> float:
         it_power = sum((s.power_draw for s in self.servers))
-        return float(it_power + self.last_cooling_power)
+        return float(it_power + self.last_cooling_power + self.get_facility_power())
+
+    def get_facility_power(self) -> float:
+        it_power = sum((s.power_draw for s in self.servers))
+        return float(self.config.cooling.facility_base_power + it_power * self.config.cooling.facility_power_ratio)
 
     def get_temperatures(self) -> np.ndarray:
         return np.array([s.temperature for s in self.servers])

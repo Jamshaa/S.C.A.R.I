@@ -59,3 +59,51 @@ def test_safety_override_raises_actions_near_limit():
     assert meta['active'] is True
     assert meta['fraction'] > 0.0
     assert np.all(safe_action >= cfg.environment.safety_min_action)
+
+
+def test_reward_weights_shift_tradeoff_toward_energy_savings():
+    conservative_cfg = Config()
+    conservative_cfg.environment.num_racks = 1
+    conservative_cfg.environment.servers_per_rack = 1
+    conservative_cfg.reward.safe_threshold = 58.0
+    conservative_cfg.reward.hard_limit = 60.0
+    conservative_cfg.reward.critical_limit = 59.5
+    conservative_cfg.reward.sweet_spot_low = 53.0
+    conservative_cfg.reward.sweet_spot_high = 59.5
+    conservative_cfg.reward.energy_weight = 1.0
+    conservative_cfg.reward.safety_weight = 2.0
+
+    aggressive_cfg = Config()
+    aggressive_cfg.environment.num_racks = 1
+    aggressive_cfg.environment.servers_per_rack = 1
+    aggressive_cfg.reward.safe_threshold = 58.0
+    aggressive_cfg.reward.hard_limit = 60.0
+    aggressive_cfg.reward.critical_limit = 59.5
+    aggressive_cfg.reward.sweet_spot_low = 53.0
+    aggressive_cfg.reward.sweet_spot_high = 59.5
+    aggressive_cfg.reward.energy_weight = 5.5
+    aggressive_cfg.reward.safety_weight = 0.6
+
+    conservative_env = DataCenterEnv(conservative_cfg)
+    aggressive_env = DataCenterEnv(aggressive_cfg)
+    conservative_env.reset(seed=3)
+    aggressive_env.reset(seed=3)
+
+    stats = [{'it_power': 500.0, 'cooling_power': 24.0, 'temp': 58.8, 'health': 1.0}]
+    action = np.array([0.08], dtype=np.float32)
+
+    conservative_reward = conservative_env._calculate_reward(stats, action)
+    aggressive_reward = aggressive_env._calculate_reward(stats, action)
+
+    assert aggressive_reward > conservative_reward
+
+
+def test_facility_overhead_is_included_in_total_power():
+    cfg = Config()
+    cfg.cooling.facility_base_power = 120.0
+    cfg.cooling.facility_power_ratio = 0.1
+    env = DataCenterEnv(cfg)
+    env.reset(seed=5)
+    _, _, _, _, info = env.step(np.zeros(env.num_servers, dtype=np.float32))
+    assert info['facility_power'] >= 120.0
+    assert info['total_power'] >= info['it_power'] + info['cooling_power'] + 120.0

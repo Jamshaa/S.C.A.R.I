@@ -1,5 +1,5 @@
 physics:
-  ambient_temp: 25.0
+  ambient_temp: 24.0
   server_thermal_mass: 12000
   p_idle: 180.0
   p_max: 750.0
@@ -9,35 +9,37 @@ physics:
   max_temp_change_per_second: 5.0
 cooling:
   mode: "AIR"
-  max_fan_power: 120.0
+  max_fan_power: 330.0
   max_pump_power: 60.0
-  base_pump_power: 8.0
-  air_cooling_capacity: 1200.0
+  base_pump_power: 10.0
+  air_cooling_capacity: 880.0
   liquid_cooling_capacity: 15000.0
-  natural_convection: 8.0
-  air_idle_power: 14.0
-  distribution_power: 9.5
-  auxiliary_power_ratio: 0.32
+  natural_convection: 7.0
+  air_idle_power: 35.0
+  distribution_power: 24.0
+  auxiliary_power_ratio: 0.52
+  facility_base_power: 0.0
+  facility_power_ratio: 0.11
 reward:
-  energy_coefficient: 36.0
-  safe_threshold: 53.0
-  critical_limit: 58.0
-  thermal_penalty_coefficient: 14.0
+  energy_coefficient: 39.0
+  safe_threshold: 49.5
+  critical_limit: 55.8
+  thermal_penalty_coefficient: 11.5
   emergency_penalty: 2200.0
-  energy_efficiency_bonus: 22.0
-  energy_weight: 4.8
+  energy_efficiency_bonus: 2.0
+  energy_weight: 6.0
   safety_weight: 2.2
-  stability_weight: 0.5
+  stability_weight: 0.35
   hard_limit: 60.0
-  warning_margin: 4.5
-  preemptive_penalty_coefficient: 52.0
+  warning_margin: 4.0
+  preemptive_penalty_coefficient: 42.0
   hard_limit_penalty: 3200.0
-  cooling_power_weight: 3.1
-  overcooling_penalty_coefficient: 0.6
-  sweet_spot_low: 55.0
-  sweet_spot_high: 57.8
-  sweet_spot_bonus: 16.0
-  profile: "PRODUCTION_SAFE"
+  cooling_power_weight: 0.90
+  overcooling_penalty_coefficient: 0.30
+  sweet_spot_low: 52.0
+  sweet_spot_high: 54.2
+  sweet_spot_bonus: 3.0
+  profile: "TOTAL_POWER_SAFE"
 training:
   timesteps: 1400000
   learning_rate: 0.00012
@@ -45,7 +47,7 @@ training:
   batch_size: 256
   gamma: 0.999
   gae_lambda: 0.97
-  ent_coef: 0.002
+  ent_coef: 0.0018
   vf_coef: 0.72
   max_grad_norm: 0.35
   n_epochs: 14
@@ -63,7 +65,7 @@ environment:
   load_std: 0.055
   terminate_on_hard_limit: true
   safety_override: true
-  safety_override_temp: 55.0
+  safety_override_temp: 54.4
   safety_min_action: 0.18
   safety_max_action: 1.0
   safety_lookahead_weight: 0.45
