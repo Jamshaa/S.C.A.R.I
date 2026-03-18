@@ -44,5 +44,5 @@ def test_apply_training_overrides_can_override_profile_label():
 def test_default_profile_loads_evaluation_baseline_settings():
     cfg = Config.from_yaml("configs/default.yaml")
     assert cfg.evaluation.baseline_profile == "TRADITIONAL_ENTERPRISE"
-    assert cfg.evaluation.baseline_target_temp == 47.0
-    assert cfg.evaluation.baseline_min_action == 0.52
+    assert cfg.evaluation.baseline_target_temp == 48.5
+    assert cfg.evaluation.baseline_min_action == 0.38

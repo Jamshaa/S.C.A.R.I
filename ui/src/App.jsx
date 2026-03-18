@@ -4,7 +4,7 @@ import {
   RefreshCw, AlertCircle, CheckCircle2, Loader2,
   History, BarChart, Edit2, X, Sun, Moon, Trash2, Leaf,
   ChevronRight, Download, Cpu, Zap, ThermometerSun,
-  Shield, TrendingDown, TreePine, Minus, Plus, Image,
+  Shield, TreePine, Minus, Plus, Image,
   Droplets, Wind, GitMerge, Globe
 } from 'lucide-react';
 import DataCenterCalculator from './DataCenterCalculator';
@@ -28,10 +28,6 @@ const fmtSteps = (n) => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return n.toString();
-};
-const normalizeBaselineLabel = (value) => {
-  const raw = (value || 'BASELINE').trim();
-  return raw.toUpperCase() === 'REAL_WORLD_PID' ? 'BASELINE' : raw;
 };
 const getSavingsBasisLabel = (value) => (
   value === 'non_it_overhead' ? 'overhead save' : 'save'
@@ -897,34 +893,23 @@ const App = () => {
                   s = m[bestModelName];
                 }
                 if (!s) return null;
-                const baselineLabel = normalizeBaselineLabel(b.controller_name);
                 const {
-                  totalSavingsPct,
-                  overheadSavingsPct,
-                  coolingSavingsPct,
-                  pueOverheadReductionPct
+                  totalSavingsPct
                 } = getComparisonStats(b, s);
                 const metrics = [
                   {
-                    label: 'Controllable Reduction',
-                    value: `${overheadSavingsPct.toFixed(1)}%`,
-                    icon: TrendingDown,
-                    color: 'var(--success)',
-                    desc: `Cooling + facility overhead vs ${baselineLabel}`
-                  },
-                  {
                     label: 'Total Facility Reduction',
-                    value: `${totalSavingsPct.toFixed(1)}%`,
+                    value: `${totalSavingsPct.toFixed(2)}%`,
                     icon: Zap,
                     color: 'var(--accent)',
-                    desc: `Whole-plant power · Cooling-only: ${coolingSavingsPct.toFixed(1)}%`
+                    desc: ''
                   },
                   {
                     label: `Best PUE (${bestModelName})`,
                     value: s.average_pue.toFixed(3),
                     icon: Activity,
                     color: 'var(--text)',
-                    desc: `${baselineLabel} PUE: ${b.average_pue.toFixed(3)} · Overhead -${pueOverheadReductionPct.toFixed(1)}%`
+                    desc: ''
                   },
                   {
                     label: 'Avg Temperature',
@@ -952,14 +937,16 @@ const App = () => {
                         <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
                           {m.value}
                         </div>
-                        <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
+                        {m.desc ? (
+                          <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
+                        ) : null}
                       </div>
                     ))}
                     <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', background: 'rgba(var(--accent-rgb), 0.03)', border: '1px dashed var(--border)' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                         <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
                         <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
-                          <strong>Note on Projections:</strong> Total savings are extrapolated from the simulation snapshot. The highlighted optimisation metric isolates controllable overhead, which better reflects what SCARI can actually tune.
+                            <strong>Note on Projections:</strong> Savings are extrapolated from the latest simulation snapshot.
                         </p>
                       </div>
                     </div>

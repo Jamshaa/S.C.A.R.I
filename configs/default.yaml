@@ -3,7 +3,6 @@ physics:
   server_thermal_mass: 12000
   p_idle: 180.0
   p_max: 750.0
-  r_coeff: 0.5
   max_temp: 85.0
   min_temp: 15.0
   max_temp_change_per_second: 5.0
@@ -74,6 +73,6 @@ environment:
   safety_load_weight: 0.08
 evaluation:
   baseline_profile: "TRADITIONAL_ENTERPRISE"
-  baseline_target_temp: 47.0
-  baseline_min_action: 0.52
+  baseline_target_temp: 48.5
+  baseline_min_action: 0.38
   baseline_max_action: 1.0
