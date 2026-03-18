@@ -57,7 +57,7 @@ class BaselineController:
     def __init__(
         self,
         target_temp: float = 50.0,
-        min_action: float = 0.18,
+        min_action: float = 0.14,
         max_action: float = 1.0,
         controller_name: str = "BASELINE",
     ):
@@ -125,11 +125,11 @@ def print_available_configs() -> None:
 
 def build_realistic_baseline(config: Config) -> BaselineController:
     conservative_target = min(config.reward.safe_threshold - 2.5, config.reward.hard_limit - 10.0)
-    conservative_target = max(config.physics.ambient_temp + 17.0, conservative_target)
+    conservative_target = max(config.physics.ambient_temp + 15.0, conservative_target)
     conservative_target = min(conservative_target, config.reward.hard_limit - 5.0)
     return BaselineController(
         target_temp=conservative_target,
-        min_action=max(0.16, config.environment.safety_min_action),
+        min_action=max(0.12, config.environment.safety_min_action),
         controller_name="BASELINE",
     )
 
@@ -139,10 +139,7 @@ class EvaluationRunner:
         self.config = config
         self.env = env
         self.evaluation_seed = evaluation_seed
-        if hasattr(env, "get_attr"):
-            self.num_servers = env.get_attr("num_servers")[0]
-        else:
-            self.num_servers = 10
+        self.num_servers = env.get_attr("num_servers")[0] if hasattr(env, "get_attr") else 10
         self.baseline = build_realistic_baseline(config)
         self.baseline_it_powers: List[float] = []
         self.baseline_cooling_powers: List[float] = []
@@ -157,8 +154,7 @@ class EvaluationRunner:
     def _get_current_loads(self) -> Optional[np.ndarray]:
         if hasattr(self.env, "get_attr"):
             try:
-                loads = self.env.get_attr("current_loads")[0]
-                return np.array(loads, dtype=np.float32)
+                return np.array(self.env.get_attr("current_loads")[0], dtype=np.float32)
             except Exception:
                 return None
         return None
@@ -170,13 +166,11 @@ class EvaluationRunner:
         )
         self.baseline.reset()
         self._reset_env()
-        rewards: List[float] = []
-        temps: List[float] = []
-        powers: List[float] = []
-        it_powers: List[float] = []
-        cooling_powers: List[float] = []
-        healths: List[float] = []
-        all_actions: List[float] = []
+        return self._run_baseline_loop(num_steps)
+
+    def _run_baseline_loop(self, num_steps: int) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
+        rewards, temps, powers, it_powers, cooling_powers = [], [], [], [], []
+        healths, all_actions = [], []
         violations = 0
         initial_temps = np.ones(self.num_servers, dtype=np.float32) * self.config.physics.ambient_temp
         action = self.baseline.compute_action(initial_temps, self._get_current_loads(), self.num_servers)
@@ -185,7 +179,7 @@ class EvaluationRunner:
             _, reward, _, info = self.env.step([action])
             step_info = info[0]
             server_temps = np.array(
-                [server["temp"] for server in step_info.get("stats", [{"temp": step_info.get("avg_temp", 25.0)}] * self.num_servers)],
+                [s["temp"] for s in step_info.get("stats", [{"temp": step_info.get("avg_temp", 25.0)}] * self.num_servers)],
                 dtype=np.float32,
             )
             action = self.baseline.compute_action(server_temps, self._get_current_loads(), self.num_servers)
@@ -199,17 +193,7 @@ class EvaluationRunner:
             if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
 
-        metrics = self._compute_metrics(
-            controller_name=self.baseline.controller_name,
-            rewards=rewards,
-            temps=temps,
-            powers=powers,
-            it_powers=it_powers,
-            cooling_powers=cooling_powers,
-            healths=healths,
-            actions=all_actions,
-            violations=violations,
-        )
+        metrics = self._compute_metrics("BASELINE", rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         self.baseline_it_powers = it_powers
         self.baseline_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics
@@ -227,13 +211,8 @@ class EvaluationRunner:
             t_max=self.config.physics.max_temp,
             max_history=num_steps,
         )
-        rewards: List[float] = []
-        temps: List[float] = []
-        powers: List[float] = []
-        it_powers: List[float] = []
-        cooling_powers: List[float] = []
-        healths: List[float] = []
-        all_actions: List[float] = []
+        rewards, temps, powers, it_powers, cooling_powers = [], [], [], [], []
+        healths, all_actions = [], []
         decisions_log: List[Dict[str, Any]] = []
         violations = 0
 
@@ -253,17 +232,7 @@ class EvaluationRunner:
             if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
 
-        metrics = self._compute_metrics(
-            controller_name=model_name,
-            rewards=rewards,
-            temps=temps,
-            powers=powers,
-            it_powers=it_powers,
-            cooling_powers=cooling_powers,
-            healths=healths,
-            actions=all_actions,
-            violations=violations,
-        )
+        metrics = self._compute_metrics(model_name, rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
         self.model_it_powers = it_powers
         self.model_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics, decisions_log
@@ -280,45 +249,48 @@ class EvaluationRunner:
         actions: List[float],
         violations: int,
     ) -> EvaluationMetrics:
-        powers_array = np.array(powers, dtype=np.float64)
-        temps_array = np.array(temps, dtype=np.float64)
-        it_array = np.array(it_powers, dtype=np.float64)
-        cooling_array = np.array(cooling_powers, dtype=np.float64)
+        powers_arr = np.array(powers, dtype=np.float64)
+        temps_arr = np.array(temps, dtype=np.float64)
+        it_arr = np.array(it_powers, dtype=np.float64)
+        cool_arr = np.array(cooling_powers, dtype=np.float64)
 
-        thermal_stability = 1.0 - np.std(temps_array) / (np.ptp(temps_array) + 1e-6)
-        power_efficiency = 1.0 - np.mean(cooling_array) / (np.mean(powers_array) + 1e-6)
-        window = min(100, max(1, len(rewards) // 5))
-        if len(rewards) > 1 and window > 1:
-            rolling = np.convolve(rewards, np.ones(window) / window, mode="valid")
-            diffs = np.abs(np.diff(rolling))
-            threshold = 0.01 * (np.max(np.abs(rolling)) + 1e-6)
-            converged_mask = diffs < threshold
-            convergence_time = int(np.argmax(converged_mask)) if converged_mask.any() else len(rewards)
-        else:
-            convergence_time = len(rewards)
+        thermal_stability = 1.0 - np.std(temps_arr) / (np.ptp(temps_arr) + 1e-6)
+        power_efficiency = 1.0 - np.mean(cool_arr) / (np.mean(powers_arr) + 1e-6)
+        convergence_time = self._estimate_convergence(rewards)
 
         return EvaluationMetrics(
             controller_name=controller_name,
-            total_power_consumption=float(np.sum(powers_array)),
-            total_it_power_consumption=float(np.sum(it_array)),
-            total_cooling_power_consumption=float(np.sum(cooling_array)),
-            average_temperature=float(np.mean(temps_array)),
-            max_temperature=float(np.max(temps_array)),
-            min_temperature=float(np.min(temps_array)),
-            std_temperature=float(np.std(temps_array)),
+            total_power_consumption=float(np.sum(powers_arr)),
+            total_it_power_consumption=float(np.sum(it_arr)),
+            total_cooling_power_consumption=float(np.sum(cool_arr)),
+            average_temperature=float(np.mean(temps_arr)),
+            max_temperature=float(np.max(temps_arr)),
+            min_temperature=float(np.min(temps_arr)),
+            std_temperature=float(np.std(temps_arr)),
             safety_violations=int(violations),
             avg_fan_speed=float(np.mean(actions)),
             power_efficiency=float(np.clip(power_efficiency, 0.0, 1.0)),
             thermal_stability=float(np.clip(thermal_stability, 0.0, 1.0)),
             episode_reward=float(np.mean(rewards) if rewards else 0.0),
-            average_pue=float(np.mean(powers_array / (it_array + 1e-6))),
+            average_pue=float(np.mean(powers_arr / (it_arr + 1e-6))),
             average_health=float(np.mean(healths) if healths else 1.0),
             convergence_time=convergence_time,
             total_steps=len(rewards),
-            average_it_power=float(np.mean(it_array) if len(it_array) else 0.0),
-            average_cooling_power=float(np.mean(cooling_array) if len(cooling_array) else 0.0),
-            average_cooling_share=float(np.mean(cooling_array / (powers_array + 1e-6)) if len(powers_array) else 0.0),
+            average_it_power=float(np.mean(it_arr)),
+            average_cooling_power=float(np.mean(cool_arr)),
+            average_cooling_share=float(np.mean(cool_arr / (powers_arr + 1e-6))),
         )
+
+    @staticmethod
+    def _estimate_convergence(rewards: List[float]) -> int:
+        window = min(100, max(1, len(rewards) // 5))
+        if len(rewards) <= 1 or window <= 1:
+            return len(rewards)
+        rolling = np.convolve(rewards, np.ones(window) / window, mode="valid")
+        diffs = np.abs(np.diff(rolling))
+        threshold = 0.01 * (np.max(np.abs(rolling)) + 1e-6)
+        converged = diffs < threshold
+        return int(np.argmax(converged)) if converged.any() else len(rewards)
 
 
 def run_evaluation() -> None:
@@ -386,9 +358,7 @@ def run_evaluation() -> None:
         try:
             trained_model = PPO.load(str(path))
             model_rewards, model_temps, model_powers, model_metrics, decisions = runner.evaluate_model(
-                trained_model,
-                model_name=model_name,
-                num_steps=args.steps,
+                trained_model, model_name=model_name, num_steps=args.steps,
             )
             model_metrics_dict[model_name] = model_metrics.to_dict()
             model_data_dict[model_name] = {

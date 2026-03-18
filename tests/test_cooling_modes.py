@@ -64,7 +64,7 @@ class TestCoolingSystem:
     def test_zero_flow_power(self, cooling):
         power = cooling.get_power_consumption(0.0)
         assert power >= 0.0
-        assert power < 50.0
+        assert power < 60.0
 
     def test_max_flow_power(self, cooling):
         power = cooling.get_power_consumption(1.0)

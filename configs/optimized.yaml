@@ -9,65 +9,66 @@ physics:
   max_temp_change_per_second: 5.0
 cooling:
   mode: "AIR"
-  max_fan_power: 340.0
+  max_fan_power: 330.0
   max_pump_power: 60.0
   base_pump_power: 10.0
-  air_cooling_capacity: 900.0
+  air_cooling_capacity: 920.0
   liquid_cooling_capacity: 15000.0
-  natural_convection: 7.0
-  air_idle_power: 34.0
-  distribution_power: 24.0
-  auxiliary_power_ratio: 0.52
+  natural_convection: 7.5
+  air_idle_power: 30.0
+  liquid_idle_power: 8.0
+  distribution_power: 20.0
+  auxiliary_power_ratio: 0.44
   facility_base_power: 0.0
   facility_power_ratio: 0.11
-  economizer_max_capacity: 2600.0
+  economizer_max_capacity: 2800.0
   economizer_midpoint_temp: 18.0
-  economizer_slope: 0.52
-  liquid_economizer_factor: 0.38
+  economizer_slope: 0.50
+  liquid_economizer_factor: 0.40
 reward:
-  energy_coefficient: 40.0
-  safe_threshold: 50.5
-  critical_limit: 56.8
-  thermal_penalty_coefficient: 6.5
-  emergency_penalty: 1400.0
-  energy_weight: 6.6
-  safety_weight: 1.2
-  stability_weight: 0.22
+  energy_coefficient: 44.0
+  safe_threshold: 53.0
+  critical_limit: 57.5
+  thermal_penalty_coefficient: 7.0
+  emergency_penalty: 1600.0
+  energy_weight: 8.0
+  safety_weight: 1.4
+  stability_weight: 0.18
   hard_limit: 60.0
-  warning_margin: 3.0
-  preemptive_penalty_coefficient: 20.0
-  hard_limit_penalty: 1500.0
-  profile: "TOTAL_POWER_FIRST"
+  warning_margin: 2.8
+  preemptive_penalty_coefficient: 22.0
+  hard_limit_penalty: 1800.0
+  profile: "TOTAL_POWER_AGGRESSIVE"
 training:
-  timesteps: 1350000
-  learning_rate: 0.00015
+  timesteps: 2000000
+  learning_rate: 0.00012
   use_linear_lr_schedule: true
-  learning_rate_end_factor: 0.25
-  n_steps: 4096
-  batch_size: 256
-  gamma: 0.999
+  learning_rate_end_factor: 0.18
+  n_steps: 8192
+  batch_size: 512
+  gamma: 0.9992
   gae_lambda: 0.97
-  ent_coef: 0.0035
-  vf_coef: 0.62
-  max_grad_norm: 0.45
-  n_epochs: 14
-  clip_range: 0.14
+  ent_coef: 0.003
+  vf_coef: 0.65
+  max_grad_norm: 0.40
+  n_epochs: 15
+  clip_range: 0.12
   normalize_advantage: true
   normalize_observation: true
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_load_change_per_step: 0.065
-  min_initial_load: 0.35
-  max_initial_load: 0.9
-  load_std: 0.065
-  ambient_temp_variation: 6.0
+  max_steps: 4000
+  max_load_change_per_step: 0.06
+  min_initial_load: 0.30
+  max_initial_load: 0.95
+  load_std: 0.06
+  ambient_temp_variation: 7.0
   ambient_cycle_steps: 1440
-  max_steps: 3200
   terminate_on_hard_limit: true
   safety_override: true
-  safety_override_temp: 55.8
-  safety_min_action: 0.12
+  safety_override_temp: 57.0
+  safety_min_action: 0.06
   safety_max_action: 1.0
-  safety_lookahead_weight: 0.24
-  safety_load_weight: 0.12
+  safety_lookahead_weight: 0.20
+  safety_load_weight: 0.10

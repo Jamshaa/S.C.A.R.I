@@ -31,7 +31,7 @@ def test_apply_training_overrides_preserves_yaml_profile_when_not_provided():
     cfg = Config.from_yaml("configs/optimized.yaml")
     args = SimpleNamespace(timesteps=None, profile=None, cooling_mode="AIR")
     updated = train_module.apply_training_overrides(cfg, args)
-    assert updated.reward.profile == "TOTAL_POWER_FIRST"
+    assert updated.reward.profile == "TOTAL_POWER_AGGRESSIVE"
 
 
 def test_apply_training_overrides_can_override_profile_label():

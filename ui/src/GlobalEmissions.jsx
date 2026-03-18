@@ -514,7 +514,8 @@ const GlobalEmissions = () => {
             <div className="ge-map-section" style={{ minHeight: '560px' }}>
                 <div className="ge-map-title-overlay">
                     <h3>Global Carbon Field</h3>
-                    <p>Monochrome globe with geometric wireframes, CO2 smoke plumes, and zoomable inspection of each national energy footprint.</p>
+                    <p>Globe with geometric wireframes of 
+                        each national energy footprint.</p>
                 </div>
                 <div className="ge-map-topbar">
                     <div className="ge-map-chip">
