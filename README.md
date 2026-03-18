@@ -1,275 +1,105 @@
-# S.C.A.R.I — Smart Cooling & AI-driven Resource Infrastructure
+# S.C.A.R.I
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![PPO](https://img.shields.io/badge/Algorithm-PPO-orange)
-![License](https://img.shields.io/badge/License-MIT-green)
-![CI](https://github.com/Jamshaa/S.C.A.R.I/actions/workflows/test.yml/badge.svg)
+S.C.A.R.I is a reinforcement learning project for data center cooling optimization.
+It trains a PPO agent to reduce energy consumption while keeping server temperatures within safe limits.
 
-**S.C.A.R.I** is a Reinforcement Learning framework for **autonomous thermal management** of data-centre infrastructure. A PPO agent with a custom attention-based policy learns to optimise cooling in real time — reducing energy consumption while maintaining safe operating temperatures.
+## What It Does
 
----
+- Simulates a data center thermal environment with servers, racks, and cooling systems
+- Trains an RL agent to choose cooling actions in real time
+- Compares the trained model against a baseline controller
+- Exposes results through a FastAPI backend and a React dashboard
+- Includes sustainability and efficiency metrics such as power savings and PUE
 
-## Architecture
+## How It Works
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    React + Vite UI (5173)                    │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────────────┐  │
-│  │ Training  │  │  Evaluation  │  │ Sustainability Calc.  │  │
-│  │ Monitor   │  │ Dashboard    │  │ ROI · CO₂ · PUE       │  │
-│  └─────┬─────┘  └──────┬───────┘  └──────────┬────────────┘  │
-│        └───────────────┼──────────────────────┘              │
-└─────────────────────────┼────────────────────────────────────┘
-                          │ REST API
-┌─────────────────────────┼────────────────────────────────────┐
-│              FastAPI Backend (8000)                           │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────────────┐  │
-│  │ Training  │  │  Evaluation  │  │ GreenDC Calculator    │  │
-│  │ Runner    │  │  Runner      │  │ (CO₂, ROI, topology)  │  │
-│  └─────┬─────┘  └──────┬───────┘  └───────────────────────┘  │
-│        └───────────────┼─────────────────────────────────────│
-│              ┌─────────┴──────────┐                          │
-│              │ Gymnasium Env      │                          │
-│              │ (Physics Sim)      │                          │
-│              └─────────┬──────────┘                          │
-│              ┌─────────┴──────────┐                          │
-│              │ PPO Agent (SB3)    │                          │
-│              │ Attention Policy   │                          │
-│              └────────────────────┘                          │
-└──────────────────────────────────────────────────────────────┘
-```
+1. The environment simulates server load, heat generation, and cooling response.
+2. A PPO agent learns which cooling action to apply at each step.
+3. The trained policy is evaluated against a baseline controller.
+4. Results are shown in the UI and through the API.
 
----
+## Stack
 
-## Features
-
-| Area                          | Detail                                                     |
-| ----------------------------- | ---------------------------------------------------------- |
-| **Thermal RL Agent**          | PPO with attention policy, thermally-aware state space     |
-| **Physics Simulation**        | Multi-rack server environment with realistic heat transfer |
-| **Telemetry Dashboard**       | Live training progress, evaluation metrics, decision trace |
-| **Sustainability Calculator** | CO₂ offset, annual savings (EUR), PUE analysis by region   |
-| **Explainability**            | Per-step reasoning, feature attribution, confidence scores |
-| **Evaluation History**        | Named runs, side-by-side comparison, chart downloads       |
-
----
+- Python
+- FastAPI
+- React + Vite
+- Stable-Baselines3
+- Gymnasium
 
 ## Quick Start
 
-### Prerequisites
+### Requirements
 
 - Python 3.10+
 - Node.js 20+
-- Git
 
-### Setup
+### Install
 
 ```bash
-# 1. Clone
 git clone https://github.com/Jamshaa/S.C.A.R.I.git
 cd S.C.A.R.I
 
-# 2. Environment config
-cp .env.example .env
-
-# 3. Python environment
 python -m venv venv
-.\venv\Scripts\activate        # Windows
-# source venv/bin/activate     # Linux / macOS
+.\venv\Scripts\activate
 pip install -r requirements.txt
 
-# 4. Frontend
-cd ui && npm install && cd ..
+cd ui
+npm install
+cd ..
 ```
 
 ### Run
 
-**Backend** (Terminal 1):
+Backend:
 
 ```bash
 python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-**Frontend** (Terminal 2):
+Frontend:
 
 ```bash
-cd ui && npm run dev
+cd ui
+npm run dev
 ```
 
-Open **http://localhost:5173**
+Open `http://localhost:5173`.
 
-### Shutdown
+## Training
 
-Press `Ctrl+C` in each terminal. Alternatively:
+The default profile is:
 
 ```bash
-# Kill the API bound to port 8000 (Windows)
-python src/scripts/cleanup_server.py
+configs/default.yaml
 ```
 
----
-
-## Project Structure
-
-```
-S.C.A.R.I/
-├── configs/
-│   ├── optimized.yaml          # General-purpose default profile
-│   ├── max_savings_safe.yaml   # Max savings with hard 60°C guardrail
-│   ├── liquid.yaml             # Profile tuned for liquid cooling
-│   └── hybrid.yaml             # Profile tuned for hybrid cooling
-├── data/models/                # Trained model checkpoints (.zip)
-├── src/
-│   ├── api/
-│   │   ├── app.py              # FastAPI backend (all endpoints)
-│   │   └── sample_decisions.py # Demo explainability data
-│   ├── envs/
-│   │   └── datacenter_env.py   # Gymnasium environment (thermal sim)
-│   ├── models/
-│   │   ├── server.py           # Server thermal model
-│   │   ├── rack.py             # Rack aggregation model
-│   │   ├── cooling.py          # Cooling system model
-│   │   └── policy.py           # Attention-based policy network
-│   ├── utils/
-│   │   ├── config.py           # Configuration loader
-│   │   ├── visualization.py    # Chart generation
-│   │   ├── explainability.py   # Decision explanation engine
-│   │   └── greendc.py          # Sustainability calculator
-│   ├── scripts/
-│   │   └── cleanup_server.py   # Port cleanup utility
-│   ├── train.py                # CLI training entry-point
-│   └── evaluate.py             # CLI evaluation entry-point
-├── ui/                         # React + Vite dashboard
-│   └── src/
-│       ├── App.jsx             # Main application UI
-│       ├── DataCenterCalculator.jsx
-│       ├── index.css           # Design system
-│       └── config.js           # API base URL
-├── tests/                      # pytest suite
-│   ├── test_api.py             # API endpoint tests
-│   ├── test_env.py             # Environment tests
-│   └── test_greendc.py         # Sustainability calculator tests
-├── .github/workflows/test.yml  # CI pipeline
-├── Dockerfile                  # Backend container
-├── docker-compose.yml          # Full-stack orchestration
-├── Makefile                    # Common tasks
-├── requirements.txt            # Python dependencies
-└── .env.example                # Environment template
-```
-
----
-
-## API Reference
-
-Once the backend is running, interactive docs are at:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Core Endpoints
-
-| Method   | Path                  | Description              |
-| -------- | --------------------- | ------------------------ |
-| `GET`    | `/`                   | API info and status      |
-| `GET`    | `/health`             | System health check      |
-| `GET`    | `/models`             | List trained models      |
-| `POST`   | `/models/rename`      | Rename a model           |
-| `DELETE` | `/models/{name}`      | Delete a single model    |
-| `DELETE` | `/models`             | Clear all models         |
-| `POST`   | `/train`              | Start training run       |
-| `GET`    | `/status`             | Training progress        |
-| `POST`   | `/evaluate`           | Start evaluation run     |
-| `GET`    | `/evaluation-status`  | Evaluation progress      |
-| `GET`    | `/evaluation-results` | Latest evaluation data   |
-| `GET`    | `/history`            | List all evaluation runs |
-| `GET`    | `/history/{id}`       | Get specific evaluation  |
-| `DELETE` | `/history/{id}`       | Delete an evaluation run |
-| `GET`    | `/explain`            | AI decision explanations |
-
-Note: mutating endpoints are local-only by default. To call them from another host, set `SCARI_API_KEY` in `.env` and send the same value in the `X-API-Key` header.
-
-### Sustainability Calculator Endpoints
-
-| Method | Path                              | Description                      |
-| ------ | --------------------------------- | -------------------------------- |
-| `POST` | `/calculator/embodied-carbon`     | Hardware embodied CO₂            |
-| `POST` | `/calculator/network-topology`    | Network topology analysis        |
-| `POST` | `/calculator/scenario-comparison` | Baseline vs optimised comparison |
-| `POST` | `/calculator/roi-analysis`        | Financial ROI analysis           |
-| `POST` | `/calculator/comprehensive`       | Full sustainability report       |
-| `GET`  | `/calculator/info`                | Available calculators info       |
-
----
-
-## Docker
+Train with the default config:
 
 ```bash
-docker compose up -d
+python -m src.train --config configs/default.yaml --cooling-mode AIR --output-name scari_target20
 ```
 
-Backend → `http://localhost:8000` · Frontend → `http://localhost:5173`
+Other profiles are available in `configs/`, including `optimized.yaml`, `max_savings_safe.yaml`, `liquid.yaml`, and `hybrid.yaml`.
 
----
+## Evaluation
 
-## Testing
+Evaluate a trained model:
 
 ```bash
-# Run all tests
-python -m pytest tests/ -v
-
-# Run specific test module
-python -m pytest tests/test_greendc.py -v
-
-# With coverage
-python -m pytest tests/ --cov=src --cov-report=html
+python -m src.evaluate --config configs/default.yaml --models data/models/scari_target20.zip
 ```
 
----
+## Project Layout
 
-## Configuration
-
-Training profiles live in `configs/`. `optimized.yaml` is the project default for UI, API and CLI unless you explicitly pass another YAML. It includes:
-
-- **Physics**: Enterprise datacenter thermal mass, power ranges, and temperature limits
-- **Cooling**: Air-cooled baseline calibrated toward a traditional enterprise facility with explicit plant overhead
-- **Reward**: Total-power-first objective with thermal guardrails and minimal reward shaping
-- **Training**: PPO hyperparameters tuned for stable convergence on the simplified reward
-
-For the stricter goal of maximizing savings while keeping an operational ceiling of `60C`, use `configs/max_savings_safe.yaml`. It keeps the total-power-first reward, but tightens the thermal guardrails and safety override so the policy stays more conservative near the limit.
-
-### Choosing a YAML
-
-```bash
-# Train and choose interactively in console (Enter uses optimized.yaml)
-python -m src.train
-
-# Evaluate and choose interactively in console (Enter uses optimized.yaml)
-python -m src.evaluate --models data/models/scari_final.zip
-
-# Force a specific profile by parameter
-python -m src.train --config configs/max_savings_safe.yaml --cooling-mode AIR --output-name scari_safe
-
-# Force a liquid or hybrid profile
-python -m src.train --config configs/liquid.yaml --cooling-mode LIQUID --output-name scari_liquid
-python -m src.train --config configs/hybrid.yaml --cooling-mode HYBRID --output-name scari_hybrid
-
-# List available YAML profiles
-python -m src.train --list-configs
-python -m src.evaluate --list-configs
+```text
+configs/   YAML training and evaluation profiles
+src/       Backend, environment, models, training, evaluation
+ui/        React dashboard
+tests/     Test suite
 ```
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Run the test suite (`python -m pytest tests/ -v`)
-4. Submit a pull request
-
----
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+This project is licensed under the MIT License.
+
+That means you can use, modify, and distribute it, including for private or commercial work, as long as you keep the license notice.

@@ -125,20 +125,77 @@ def extract_primary_model(metrics: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]
     return "baseline", metrics.get("baseline", {})
 
 
+def calculate_efficiency_summary(baseline: Dict[str, Any], primary: Dict[str, Any]) -> Dict[str, float | str]:
+    baseline_power = max(0.0, float(baseline.get("total_power_consumption", 0.0)))
+    primary_power = max(0.0, float(primary.get("total_power_consumption", baseline_power)))
+
+    has_it_data = (
+        "total_it_power_consumption" in baseline
+        or "total_it_power_consumption" in primary
+    )
+    baseline_it = max(0.0, float(baseline.get("total_it_power_consumption", 0.0)))
+    primary_it = max(0.0, float(primary.get("total_it_power_consumption", 0.0)))
+    baseline_overhead = max(0.0, baseline_power - baseline_it) if has_it_data else 0.0
+    primary_overhead = max(0.0, primary_power - primary_it) if has_it_data else 0.0
+
+    baseline_cooling = max(0.0, float(baseline.get("total_cooling_power_consumption", baseline_overhead)))
+    primary_cooling = max(0.0, float(primary.get("total_cooling_power_consumption", primary_overhead)))
+
+    total_power_savings = (
+        (baseline_power - primary_power) / baseline_power * 100 if baseline_power > 0 else 0.0
+    )
+    non_it_overhead_savings = (
+        (baseline_overhead - primary_overhead) / baseline_overhead * 100 if baseline_overhead > 0 else total_power_savings
+    )
+    cooling_savings = (
+        (baseline_cooling - primary_cooling) / baseline_cooling * 100 if baseline_cooling > 0 else non_it_overhead_savings
+    )
+
+    baseline_pue = max(0.0, float(baseline.get("average_pue", 0.0)))
+    optimized_pue = max(0.0, float(primary.get("average_pue", baseline_pue)))
+    pue_improvement = (
+        (baseline_pue - optimized_pue) / baseline_pue * 100 if baseline_pue > 0 else 0.0
+    )
+    baseline_pue_overhead = max(0.0, baseline_pue - 1.0)
+    optimized_pue_overhead = max(0.0, optimized_pue - 1.0)
+    pue_overhead_reduction = (
+        (baseline_pue_overhead - optimized_pue_overhead) / baseline_pue_overhead * 100
+        if baseline_pue_overhead > 1e-6
+        else pue_improvement
+    )
+
+    return {
+        "baseline_power_w": baseline_power,
+        "primary_power_w": primary_power,
+        "baseline_overhead_power_w": baseline_overhead,
+        "primary_overhead_power_w": primary_overhead,
+        "baseline_cooling_power_w": baseline_cooling,
+        "primary_cooling_power_w": primary_cooling,
+        "total_power_savings_percent": total_power_savings,
+        "non_it_overhead_savings_percent": non_it_overhead_savings,
+        "cooling_savings_percent": cooling_savings,
+        "optimization_savings_percent": non_it_overhead_savings,
+        "savings_basis": "non_it_overhead" if has_it_data and baseline_overhead > 0 else "total_power",
+        "baseline_pue": baseline_pue,
+        "optimized_pue": optimized_pue,
+        "pue_improvement_percent": pue_improvement,
+        "pue_overhead_reduction_percent": pue_overhead_reduction,
+    }
+
+
 def build_history_summary(entry_name: str, metrics: Dict[str, Any]) -> Dict[str, Any]:
     baseline = metrics.get("baseline", {})
     model_name, primary = extract_primary_model(metrics)
-    baseline_power = float(baseline.get("total_power_consumption", 0.0))
-    primary_power = float(primary.get("total_power_consumption", baseline_power))
-    if baseline_power > 0:
-        savings = (baseline_power - primary_power) / baseline_power * 100
-    else:
-        savings = 0.0
+    summary = calculate_efficiency_summary(baseline, primary)
     return {
         "id": entry_name,
         "timestamp": entry_name,
         "pue": primary.get("average_pue"),
-        "savings": round(savings, 2),
+        "savings": round(float(summary["optimization_savings_percent"]), 2),
+        "total_power_savings_percent": round(float(summary["total_power_savings_percent"]), 2),
+        "overhead_savings_percent": round(float(summary["non_it_overhead_savings_percent"]), 2),
+        "cooling_savings_percent": round(float(summary["cooling_savings_percent"]), 2),
+        "savings_basis": summary["savings_basis"],
         "steps": int(primary.get("total_steps", 5000)),
         "model": model_name,
     }
@@ -147,14 +204,29 @@ def build_history_summary(entry_name: str, metrics: Dict[str, Any]) -> Dict[str,
 def build_sustainability(metrics: Dict[str, Any], calculator: GreenDCCalculator) -> Dict[str, Any]:
     baseline = metrics.get("baseline", {})
     _, primary = extract_primary_model(metrics)
-    baseline_power = float(baseline.get("total_power_consumption", 0.0))
-    primary_power = float(primary.get("total_power_consumption", baseline_power))
+    summary = calculate_efficiency_summary(baseline, primary)
     total_steps = int(primary.get("total_steps", 5000))
-    return calculator.calculate_impact(
-        baseline_power_w=baseline_power,
-        scari_power_w=primary_power,
+    sustainability = calculator.calculate_impact(
+        baseline_power_w=float(summary["baseline_power_w"]),
+        scari_power_w=float(summary["primary_power_w"]),
         simulation_steps=total_steps,
     )
+    if float(summary["baseline_pue"]) > 0:
+        sustainability["pue_baseline"] = round(float(summary["baseline_pue"]), 3)
+    if float(summary["optimized_pue"]) > 0:
+        sustainability["pue_optimized"] = round(float(summary["optimized_pue"]), 3)
+    sustainability.update(
+        {
+            "total_power_savings_percent": round(float(summary["total_power_savings_percent"]), 2),
+            "non_it_overhead_savings_percent": round(float(summary["non_it_overhead_savings_percent"]), 2),
+            "cooling_savings_percent": round(float(summary["cooling_savings_percent"]), 2),
+            "optimization_savings_percent": round(float(summary["optimization_savings_percent"]), 2),
+            "optimization_savings_basis": summary["savings_basis"],
+            "pue_improvement_percent": round(float(summary["pue_improvement_percent"]), 2),
+            "pue_overhead_reduction_percent": round(float(summary["pue_overhead_reduction_percent"]), 2),
+        }
+    )
+    return sustainability
 
 
 class JSONFormatter(logging.Formatter):
@@ -207,7 +279,7 @@ def get_python_executable() -> str:
 
 class TrainingParams(BaseModel):
     timesteps: int = 10000
-    config: str = "configs/optimized.yaml"
+    config: str = "configs/default.yaml"
     name: str = "scari_model"
     cooling_mode: str = "AIR"
 
@@ -253,7 +325,7 @@ class EvaluationRequest(BaseModel):
     models: Optional[List[str]] = None
     steps: int = 5000
     name: Optional[str] = None
-    config: str = "configs/optimized.yaml"
+    config: str = "configs/default.yaml"
 
     @field_validator("steps")
     @classmethod

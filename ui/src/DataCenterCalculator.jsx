@@ -58,6 +58,16 @@ const REGION_DATA = {
   IN:   { price: 0.07, currency: '$', label: 'India',     intensity: 0.700 },
   ASIA: { price: 0.07, currency: '$', label: 'Asia-Pac',  intensity: 0.500 },
 };
+const getOptimizationSavingsPct = (sustainability) => (
+  sustainability?.optimization_savings_percent
+  ?? sustainability?.non_it_overhead_savings_percent
+  ?? sustainability?.energy_savings_percent
+  ?? sustainability?.pue_improvement_percent
+  ?? 0
+);
+const getOptimizationSavingsLabel = (basis) => (
+  basis === 'non_it_overhead' ? 'overhead optimisation' : 'energy savings'
+);
 const DataCenterCalculator = ({ onToast, evalResults }) => {
   const [activeTab, setActiveTab] = useState('config');
   const [isLoading, setIsLoading] = useState(false);
@@ -105,7 +115,8 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     }
     const avgPUE      = src.pue_optimized ?? 1.10;
     const baselinePUE = src.pue_baseline  ?? 1.67;
-    const savings_pct = src.energy_savings_percent ?? src.pue_improvement_percent ?? 0;
+    const savings_pct = getOptimizationSavingsPct(src);
+    const savings_label = getOptimizationSavingsLabel(src.optimization_savings_basis);
     setFormData(prev => ({
       ...prev,
       optimized_pue: parseFloat(avgPUE.toFixed(3)),
@@ -114,7 +125,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     setSelectedPreset(null);
     setShowHistory(false);
     setIsLocked(true);
-    onToast?.(`Imported: PUE ${avgPUE.toFixed(3)}, ${savings_pct.toFixed(1)}% savings`, 'success');
+    onToast?.(`Imported: PUE ${avgPUE.toFixed(3)}, ${savings_pct.toFixed(1)}% ${savings_label}`, 'success');
   };
   const fetchHistory = async () => {
     setLoadingHistory(true);
@@ -381,7 +392,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                   {evalResults?.sustainability
-                    ? `Active: ${evalResults.sustainability.energy_savings_percent?.toFixed(1) ?? '—'}% optimisation detected`
+                    ? `Active: ${getOptimizationSavingsPct(evalResults.sustainability).toFixed(1)}% ${getOptimizationSavingsLabel(evalResults.sustainability.optimization_savings_basis)} detected`
                     : 'No external telemetry linked'}
                 </p>
               </div>
@@ -439,7 +450,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                           <span style={{ fontWeight: 700, color: 'var(--success)', fontSize: '12px' }}>
-                            {run.savings ? run.savings.toFixed(1) : '0'}%
+                            {run.savings ? run.savings.toFixed(1) : '0'}% {run.savings_basis === 'non_it_overhead' ? 'OH' : 'TOT'}
                           </span>
                           <button 
                             className="btn btn-ghost btn-sm" 

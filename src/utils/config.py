@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIGS_DIR = PROJECT_ROOT / 'configs'
-PREFERRED_CONFIG_NAME = 'optimized.yaml'
+PREFERRED_CONFIG_NAME = 'default.yaml'
 PREFERRED_CONFIG_PATH = CONFIGS_DIR / PREFERRED_CONFIG_NAME
 
 
@@ -175,12 +175,20 @@ class EnvironmentConfig:
     safety_load_weight: float = 0.18
 
 @dataclass
+class EvaluationConfig:
+    baseline_profile: str = 'TUNED_PID'
+    baseline_target_temp: float = 0.0
+    baseline_min_action: float = 0.0
+    baseline_max_action: float = 1.0
+
+@dataclass
 class Config:
     physics: PhysicsConfig = field(default_factory=PhysicsConfig)
     cooling: CoolingConfig = field(default_factory=CoolingConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> 'Config':
@@ -189,13 +197,13 @@ class Config:
             with open(path, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f)
             env_data = data.get('environment', data.get('env', {}))
-            return cls(physics=PhysicsConfig(**data.get('physics', {})), cooling=CoolingConfig(**data.get('cooling', {})), reward=RewardConfig(**data.get('reward', {})), training=TrainingConfig(**data.get('training', {})), environment=EnvironmentConfig(**env_data))
+            return cls(physics=PhysicsConfig(**data.get('physics', {})), cooling=CoolingConfig(**data.get('cooling', {})), reward=RewardConfig(**data.get('reward', {})), training=TrainingConfig(**data.get('training', {})), environment=EnvironmentConfig(**env_data), evaluation=EvaluationConfig(**data.get('evaluation', {})))
         except Exception as e:
             logger.error(f'Error loading config from {path}: {e}')
             raise
 
     def to_dict(self) -> Dict[str, Any]:
-        return {'physics': self.physics.__dict__, 'cooling': self.cooling.__dict__, 'reward': self.reward.__dict__, 'training': self.training.__dict__, 'environment': self.environment.__dict__}
+        return {'physics': self.physics.__dict__, 'cooling': self.cooling.__dict__, 'reward': self.reward.__dict__, 'training': self.training.__dict__, 'environment': self.environment.__dict__, 'evaluation': self.evaluation.__dict__}
 
     def to_json(self, path: Union[str, Path]) -> None:
         path = Path(path)

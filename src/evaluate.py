@@ -60,16 +60,28 @@ class BaselineController:
         min_action: float = 0.14,
         max_action: float = 1.0,
         controller_name: str = "BASELINE",
+        strategy: str = "TUNED_PID",
     ):
         self.target_temp = float(target_temp)
         self.min_action = float(min_action)
         self.max_action = float(max_action)
         self.controller_name = controller_name
+        self.strategy = strategy.upper()
         self.prev_error = 0.0
         self.prev_max_temp: Optional[float] = None
         self.integral = 0.0
 
     def compute_action(
+        self,
+        temps: np.ndarray,
+        loads: Optional[np.ndarray],
+        num_servers: int,
+    ) -> np.ndarray:
+        if self.strategy == "TRADITIONAL_ENTERPRISE":
+            return self._compute_traditional_action(temps, loads, num_servers)
+        return self._compute_tuned_pid_action(temps, loads, num_servers)
+
+    def _compute_tuned_pid_action(
         self,
         temps: np.ndarray,
         loads: Optional[np.ndarray],
@@ -102,6 +114,44 @@ class BaselineController:
         fan_speed = float(np.clip(fan_speed, self.min_action, self.max_action))
         return np.ones(num_servers, dtype=np.float32) * fan_speed
 
+    def _compute_traditional_action(
+        self,
+        temps: np.ndarray,
+        loads: Optional[np.ndarray],
+        num_servers: int,
+    ) -> np.ndarray:
+        max_temp = float(np.max(temps))
+        avg_temp = float(np.mean(temps))
+        avg_load = float(np.mean(loads)) if loads is not None and len(loads) else 0.55
+        temp_rise = 0.0 if self.prev_max_temp is None else max(0.0, max_temp - self.prev_max_temp)
+        self.prev_max_temp = max_temp
+
+        if avg_load > 0.8:
+            load_bias = 0.22
+        elif avg_load > 0.65:
+            load_bias = 0.18
+        elif avg_load > 0.5:
+            load_bias = 0.14
+        else:
+            load_bias = 0.10
+
+        fan_speed = self.min_action + load_bias
+        fan_speed += np.clip((avg_temp - (self.target_temp - 5.5)) / 4.0, 0.0, 1.0) * 0.26
+        fan_speed += np.clip((max_temp - (self.target_temp - 1.5)) / 3.0, 0.0, 1.0) * 0.34
+        fan_speed += np.clip(temp_rise / 1.0, 0.0, 1.0) * 0.14
+
+        if max_temp < self.target_temp - 2.5:
+            fan_speed = max(fan_speed, self.min_action + 0.06)
+        if max_temp > self.target_temp + 1.0:
+            fan_speed = max(fan_speed, 0.82)
+        if max_temp > self.target_temp + 2.5:
+            fan_speed = max(fan_speed, 0.94)
+        if max_temp > self.target_temp + 4.0:
+            fan_speed = self.max_action
+
+        fan_speed = float(np.clip(fan_speed, self.min_action, self.max_action))
+        return np.ones(num_servers, dtype=np.float32) * fan_speed
+
     def reset(self) -> None:
         self.prev_error = 0.0
         self.prev_max_temp = None
@@ -124,13 +174,40 @@ def print_available_configs() -> None:
 
 
 def build_realistic_baseline(config: Config) -> BaselineController:
+    profile = getattr(config.evaluation, "baseline_profile", "TUNED_PID").upper()
     conservative_target = min(config.reward.safe_threshold - 2.5, config.reward.hard_limit - 10.0)
     conservative_target = max(config.physics.ambient_temp + 15.0, conservative_target)
     conservative_target = min(conservative_target, config.reward.hard_limit - 5.0)
+    if profile in {"TRADITIONAL_ENTERPRISE", "ENTERPRISE_CRAC", "LEGACY_CRAC"}:
+        default_target = min(config.reward.safe_threshold - 5.5, config.reward.hard_limit - 11.0)
+        default_target = max(config.physics.ambient_temp + 12.0, default_target)
+        cooling_mode = config.cooling.mode.upper()
+        default_floor = {
+            "AIR": 0.48,
+            "LIQUID": 0.28,
+            "HYBRID": 0.34,
+        }.get(cooling_mode, 0.24)
+        baseline_target = config.evaluation.baseline_target_temp if config.evaluation.baseline_target_temp > 0 else default_target
+        baseline_min_action = config.evaluation.baseline_min_action if config.evaluation.baseline_min_action > 0 else max(default_floor, config.environment.safety_min_action + 0.18)
+        baseline_max_action = max(baseline_min_action, float(config.evaluation.baseline_max_action))
+        return BaselineController(
+            target_temp=baseline_target,
+            min_action=baseline_min_action,
+            max_action=baseline_max_action,
+            controller_name="TRADITIONAL_ENTERPRISE",
+            strategy="TRADITIONAL_ENTERPRISE",
+        )
+
+    baseline_target = config.evaluation.baseline_target_temp if config.evaluation.baseline_target_temp > 0 else conservative_target
+    baseline_min_action = config.evaluation.baseline_min_action if config.evaluation.baseline_min_action > 0 else max(0.12, config.environment.safety_min_action)
+    baseline_max_action = max(baseline_min_action, float(config.evaluation.baseline_max_action))
+    controller_name = "REAL_WORLD_PID" if profile == "REAL_WORLD_PID" else "BASELINE"
     return BaselineController(
-        target_temp=conservative_target,
-        min_action=max(0.12, config.environment.safety_min_action),
-        controller_name="BASELINE",
+        target_temp=baseline_target,
+        min_action=baseline_min_action,
+        max_action=baseline_max_action,
+        controller_name=controller_name,
+        strategy="TUNED_PID",
     )
 
 
@@ -295,7 +372,7 @@ class EvaluationRunner:
 
 def run_evaluation() -> None:
     parser = argparse.ArgumentParser(description="SCARI Performance Evaluation")
-    parser.add_argument("--config", type=str, help="Config path; if omitted, optimized.yaml is used by default")
+    parser.add_argument("--config", type=str, help="Config path; if omitted, default.yaml is used by default")
     parser.add_argument("--list-configs", action="store_true", help="List available YAML configs and exit")
     parser.add_argument(
         "--models",

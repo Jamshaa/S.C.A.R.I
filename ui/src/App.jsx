@@ -33,6 +33,34 @@ const normalizeBaselineLabel = (value) => {
   const raw = (value || 'BASELINE').trim();
   return raw.toUpperCase() === 'REAL_WORLD_PID' ? 'BASELINE' : raw;
 };
+const getSavingsBasisLabel = (value) => (
+  value === 'non_it_overhead' ? 'overhead save' : 'save'
+);
+const getComparisonStats = (baseline = {}, candidate = {}) => {
+  const baselinePower = Number(baseline.total_power_consumption || 0);
+  const candidatePower = Number(candidate.total_power_consumption || baselinePower);
+  const baselineIt = Number(baseline.total_it_power_consumption || 0);
+  const candidateIt = Number(candidate.total_it_power_consumption || 0);
+  const baselineOverhead = Math.max(0, baselinePower - baselineIt);
+  const candidateOverhead = Math.max(0, candidatePower - candidateIt);
+  const baselineCooling = Number(baseline.total_cooling_power_consumption || baselineOverhead);
+  const candidateCooling = Number(candidate.total_cooling_power_consumption || candidateOverhead);
+  const totalSavingsPct = baselinePower > 0 ? ((baselinePower - candidatePower) / baselinePower) * 100 : 0;
+  const overheadSavingsPct = baselineOverhead > 0
+    ? ((baselineOverhead - candidateOverhead) / baselineOverhead) * 100
+    : totalSavingsPct;
+  const coolingSavingsPct = baselineCooling > 0
+    ? ((baselineCooling - candidateCooling) / baselineCooling) * 100
+    : overheadSavingsPct;
+  const baselinePue = Number(baseline.average_pue || 0);
+  const candidatePue = Number(candidate.average_pue || baselinePue);
+  const baselinePueOverhead = Math.max(0, baselinePue - 1.0);
+  const candidatePueOverhead = Math.max(0, candidatePue - 1.0);
+  const pueOverheadReductionPct = baselinePueOverhead > 0
+    ? ((baselinePueOverhead - candidatePueOverhead) / baselinePueOverhead) * 100
+    : totalSavingsPct;
+  return { totalSavingsPct, overheadSavingsPct, coolingSavingsPct, pueOverheadReductionPct };
+};
 const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
@@ -304,7 +332,7 @@ const App = () => {
         body: JSON.stringify({
           timesteps: trainingSteps,
           name: trainingName,
-          config: 'configs/optimized.yaml',
+          config: 'configs/default.yaml',
           cooling_mode: coolingMode
         })
       });
@@ -726,7 +754,7 @@ const App = () => {
                     {h.id.split('_').slice(0, -2).join('_') || 'Evaluation'}
                   </p>
                   <p style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
-                    {h.timestamp} · {h.savings?.toFixed(1)}% save
+                    {h.timestamp} · {h.savings?.toFixed(1)}% {getSavingsBasisLabel(h.savings_basis)}
                   </p>
                 </div>
                 <button
@@ -870,21 +898,33 @@ const App = () => {
                 }
                 if (!s) return null;
                 const baselineLabel = normalizeBaselineLabel(b.controller_name);
-                const energySavings = (b.total_power_consumption - s.total_power_consumption) / b.total_power_consumption;
+                const {
+                  totalSavingsPct,
+                  overheadSavingsPct,
+                  coolingSavingsPct,
+                  pueOverheadReductionPct
+                } = getComparisonStats(b, s);
                 const metrics = [
                   {
-                    label: 'Best Power Reduction',
-                    value: `${(energySavings * 100).toFixed(1)}%`,
+                    label: 'Controllable Reduction',
+                    value: `${overheadSavingsPct.toFixed(1)}%`,
                     icon: TrendingDown,
                     color: 'var(--success)',
-                    desc: `vs ${baselineLabel}`
+                    desc: `Cooling + facility overhead vs ${baselineLabel}`
+                  },
+                  {
+                    label: 'Total Facility Reduction',
+                    value: `${totalSavingsPct.toFixed(1)}%`,
+                    icon: Zap,
+                    color: 'var(--accent)',
+                    desc: `Whole-plant power · Cooling-only: ${coolingSavingsPct.toFixed(1)}%`
                   },
                   {
                     label: `Best PUE (${bestModelName})`,
                     value: s.average_pue.toFixed(3),
-                    icon: Zap,
-                    color: 'var(--accent)',
-                    desc: `${baselineLabel} PUE: ${b.average_pue.toFixed(3)}`
+                    icon: Activity,
+                    color: 'var(--text)',
+                    desc: `${baselineLabel} PUE: ${b.average_pue.toFixed(3)} · Overhead -${pueOverheadReductionPct.toFixed(1)}%`
                   },
                   {
                     label: 'Avg Temperature',
@@ -919,7 +959,7 @@ const App = () => {
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
                         <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
                         <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
-                          <strong>Note on Projections:</strong> Sustainability metrics and yearly savings are linear extrapolations based on the simulation snapshot. Real-world performance may vary due to seasonality and non-linear data center loads.
+                          <strong>Note on Projections:</strong> Total savings are extrapolated from the simulation snapshot. The highlighted optimisation metric isolates controllable overhead, which better reflects what SCARI can actually tune.
                         </p>
                       </div>
                     </div>

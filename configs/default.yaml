@@ -26,54 +26,54 @@ cooling:
   economizer_slope: 0.50
   liquid_economizer_factor: 0.40
 reward:
-  energy_coefficient: 44.0
-  safe_threshold: 53.0
-  critical_limit: 57.5
-  thermal_penalty_coefficient: 7.0
-  emergency_penalty: 1600.0
-  energy_weight: 8.0
-  safety_weight: 1.4
-  stability_weight: 0.18
-  hard_limit: 60.0
-  warning_margin: 2.8
-  preemptive_penalty_coefficient: 22.0
-  hard_limit_penalty: 1800.0
-  profile: "TOTAL_POWER_AGGRESSIVE"
+  energy_coefficient: 50.0
+  safe_threshold: 55.5
+  critical_limit: 60.5
+  thermal_penalty_coefficient: 5.8
+  emergency_penalty: 1450.0
+  energy_weight: 10.0
+  safety_weight: 1.0
+  stability_weight: 0.10
+  hard_limit: 63.5
+  warning_margin: 2.6
+  preemptive_penalty_coefficient: 18.0
+  hard_limit_penalty: 1600.0
+  profile: "TOTAL_POWER_TARGET_20"
 training:
-  timesteps: 2000000
-  learning_rate: 0.00012
+  timesteps: 2400000
+  learning_rate: 0.00011
   use_linear_lr_schedule: true
-  learning_rate_end_factor: 0.18
+  learning_rate_end_factor: 0.15
   n_steps: 8192
   batch_size: 512
-  gamma: 0.9992
+  gamma: 0.9994
   gae_lambda: 0.97
-  ent_coef: 0.003
-  vf_coef: 0.65
-  max_grad_norm: 0.40
-  n_epochs: 15
-  clip_range: 0.12
+  ent_coef: 0.0025
+  vf_coef: 0.62
+  max_grad_norm: 0.36
+  n_epochs: 16
+  clip_range: 0.10
   normalize_advantage: true
   normalize_observation: true
 environment:
   num_racks: 1
   servers_per_rack: 10
-  max_steps: 4000
+  max_steps: 4500
   max_load_change_per_step: 0.06
   min_initial_load: 0.30
-  max_initial_load: 0.95
+  max_initial_load: 0.96
   load_std: 0.06
   ambient_temp_variation: 7.0
   ambient_cycle_steps: 1440
   terminate_on_hard_limit: true
   safety_override: true
-  safety_override_temp: 57.0
-  safety_min_action: 0.06
+  safety_override_temp: 60.5
+  safety_min_action: 0.04
   safety_max_action: 1.0
-  safety_lookahead_weight: 0.20
-  safety_load_weight: 0.10
+  safety_lookahead_weight: 0.16
+  safety_load_weight: 0.08
 evaluation:
   baseline_profile: "TRADITIONAL_ENTERPRISE"
-  baseline_target_temp: 47.5
-  baseline_min_action: 0.48
+  baseline_target_temp: 47.0
+  baseline_min_action: 0.52
   baseline_max_action: 1.0

@@ -71,3 +71,8 @@ environment:
   safety_max_action: 1.0
   safety_lookahead_weight: 0.24
   safety_load_weight: 0.12
+evaluation:
+  baseline_profile: "TRADITIONAL_ENTERPRISE"
+  baseline_target_temp: 48.5
+  baseline_min_action: 0.28
+  baseline_max_action: 1.0

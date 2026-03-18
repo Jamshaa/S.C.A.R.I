@@ -70,7 +70,7 @@ def run_training():
     base_dir = Path(__file__).parent.parent
     default_models = base_dir / 'data/models'
     default_logs = base_dir / 'logs/tb'
-    parser.add_argument('--config', type=str, help='Config path; if omitted, optimized.yaml is used by default')
+    parser.add_argument('--config', type=str, help='Config path; if omitted, default.yaml is used by default')
     parser.add_argument('--list-configs', action='store_true', help='List available YAML configs and exit')
     parser.add_argument('--timesteps', type=int, help='Override total training timesteps')
     parser.add_argument('--model-dir', type=str, default=str(default_models))
