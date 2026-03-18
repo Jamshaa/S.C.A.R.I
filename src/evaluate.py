@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from tqdm import tqdm
 
 from src.utils.config import (
@@ -26,6 +26,34 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+def find_vecnormalize_stats_path(model_path: Path) -> Optional[Path]:
+    candidates = [
+        model_path.with_name(f"{model_path.stem}_vec_normalize.pkl"),
+        model_path.parent / "vec_normalize.pkl",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def build_evaluation_env(config: Config, vecnormalize_path: Optional[Path] = None) -> Any:
+    from src.envs.datacenter_env import DataCenterEnv
+
+    env = DummyVecEnv([lambda: DataCenterEnv(config)])
+    if vecnormalize_path is None:
+        return env
+    try:
+        wrapped_env = VecNormalize.load(str(vecnormalize_path), env)
+        wrapped_env.training = False
+        wrapped_env.norm_reward = False
+        logger.info("Loaded VecNormalize stats from %s", vecnormalize_path)
+        return wrapped_env
+    except Exception as exc:
+        logger.warning("Failed to load VecNormalize stats from %s: %s", vecnormalize_path, exc)
+        return env
+
+
 @dataclass
 class EvaluationMetrics:
     controller_name: str
@@ -37,6 +65,11 @@ class EvaluationMetrics:
     min_temperature: float
     std_temperature: float
     safety_violations: int
+    safety_override_steps: int
+    safety_override_rate_percent: float
+    safety_override_avg_fraction: float
+    safety_override_avg_fraction_active: float
+    safety_override_max_fraction: float
     avg_fan_speed: float
     power_efficiency: float
     thermal_stability: float
@@ -236,6 +269,14 @@ class EvaluationRunner:
                 return None
         return None
 
+    def _get_explainer_observation(self, obs: Any) -> Any:
+        if hasattr(self.env, "unnormalize_obs"):
+            try:
+                return self.env.unnormalize_obs(np.array(obs, copy=True))
+            except Exception:
+                return obs
+        return obs
+
     def evaluate_baseline(self, num_steps: int = 5000) -> Tuple[List[float], List[float], List[float], EvaluationMetrics]:
         print(
             f"\nEvaluating baseline controller: {self.baseline.controller_name} "
@@ -249,6 +290,8 @@ class EvaluationRunner:
         rewards, temps, powers, it_powers, cooling_powers = [], [], [], [], []
         healths, all_actions = [], []
         violations = 0
+        override_steps = 0
+        override_fractions: List[float] = []
         initial_temps = np.ones(self.num_servers, dtype=np.float32) * self.config.physics.ambient_temp
         action = self.baseline.compute_action(initial_temps, self._get_current_loads(), self.num_servers)
 
@@ -267,10 +310,26 @@ class EvaluationRunner:
             cooling_powers.append(float(step_info.get("cooling_power", step_info.get("total_power", 0.0) * 0.1)))
             healths.append(float(step_info.get("avg_health", 1.0)))
             all_actions.append(float(np.mean(action)))
+            override_fraction = float(step_info.get("safety_override_fraction", 0.0))
+            override_fractions.append(max(0.0, override_fraction))
+            if step_info.get("safety_override_active", False):
+                override_steps += 1
             if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
 
-        metrics = self._compute_metrics("BASELINE", rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+        metrics = self._compute_metrics(
+            "BASELINE",
+            rewards,
+            temps,
+            powers,
+            it_powers,
+            cooling_powers,
+            healths,
+            all_actions,
+            violations,
+            override_steps,
+            override_fractions,
+        )
         self.baseline_it_powers = it_powers
         self.baseline_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics
@@ -292,11 +351,14 @@ class EvaluationRunner:
         healths, all_actions = [], []
         decisions_log: List[Dict[str, Any]] = []
         violations = 0
+        override_steps = 0
+        override_fractions: List[float] = []
 
         for step in tqdm(range(num_steps), desc=model_name, leave=False):
             action, _ = model.predict(obs, deterministic=True)
             if step % 50 == 0:
-                decisions_log.append(explainer.explain_action(obs, action[0], step))
+                explainer_obs = self._get_explainer_observation(obs)
+                decisions_log.append(explainer.explain_action(explainer_obs, action[0], step))
             obs, reward, _, info = self.env.step(action)
             step_info = info[0]
             rewards.append(float(reward[0]))
@@ -306,10 +368,26 @@ class EvaluationRunner:
             cooling_powers.append(float(step_info.get("cooling_power", step_info.get("total_power", 0.0) * 0.1)))
             healths.append(float(step_info.get("avg_health", 1.0)))
             all_actions.append(float(np.mean(action[0])))
+            override_fraction = float(step_info.get("safety_override_fraction", 0.0))
+            override_fractions.append(max(0.0, override_fraction))
+            if step_info.get("safety_override_active", False):
+                override_steps += 1
             if step_info.get("hard_limit_violation", step_info.get("max_temp", 0.0) >= self.config.reward.hard_limit):
                 violations += 1
 
-        metrics = self._compute_metrics(model_name, rewards, temps, powers, it_powers, cooling_powers, healths, all_actions, violations)
+        metrics = self._compute_metrics(
+            model_name,
+            rewards,
+            temps,
+            powers,
+            it_powers,
+            cooling_powers,
+            healths,
+            all_actions,
+            violations,
+            override_steps,
+            override_fractions,
+        )
         self.model_it_powers = it_powers
         self.model_cooling_powers = cooling_powers
         return rewards, temps, powers, metrics, decisions_log
@@ -325,15 +403,20 @@ class EvaluationRunner:
         healths: List[float],
         actions: List[float],
         violations: int,
+        override_steps: int,
+        override_fractions: List[float],
     ) -> EvaluationMetrics:
         powers_arr = np.array(powers, dtype=np.float64)
         temps_arr = np.array(temps, dtype=np.float64)
         it_arr = np.array(it_powers, dtype=np.float64)
         cool_arr = np.array(cooling_powers, dtype=np.float64)
+        override_arr = np.array(override_fractions, dtype=np.float64)
+        active_override_arr = override_arr[override_arr > 1e-6]
 
         thermal_stability = 1.0 - np.std(temps_arr) / (np.ptp(temps_arr) + 1e-6)
         power_efficiency = 1.0 - np.mean(cool_arr) / (np.mean(powers_arr) + 1e-6)
         convergence_time = self._estimate_convergence(rewards)
+        total_steps = len(rewards)
 
         return EvaluationMetrics(
             controller_name=controller_name,
@@ -345,6 +428,11 @@ class EvaluationRunner:
             min_temperature=float(np.min(temps_arr)),
             std_temperature=float(np.std(temps_arr)),
             safety_violations=int(violations),
+            safety_override_steps=int(override_steps),
+            safety_override_rate_percent=float((override_steps / max(total_steps, 1)) * 100.0),
+            safety_override_avg_fraction=float(np.mean(override_arr) if override_arr.size else 0.0),
+            safety_override_avg_fraction_active=float(np.mean(active_override_arr) if active_override_arr.size else 0.0),
+            safety_override_max_fraction=float(np.max(override_arr) if override_arr.size else 0.0),
             avg_fan_speed=float(np.mean(actions)),
             power_efficiency=float(np.clip(power_efficiency, 0.0, 1.0)),
             thermal_stability=float(np.clip(thermal_stability, 0.0, 1.0)),
@@ -352,7 +440,7 @@ class EvaluationRunner:
             average_pue=float(np.mean(powers_arr / (it_arr + 1e-6))),
             average_health=float(np.mean(healths) if healths else 1.0),
             convergence_time=convergence_time,
-            total_steps=len(rewards),
+            total_steps=total_steps,
             average_it_power=float(np.mean(it_arr)),
             average_cooling_power=float(np.mean(cool_arr)),
             average_cooling_share=float(np.mean(cool_arr / (powers_arr + 1e-6))),
@@ -394,8 +482,6 @@ def run_evaluation() -> None:
         print_available_configs()
         return
 
-    from src.envs.datacenter_env import DataCenterEnv
-
     np.random.seed(args.seed)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -410,15 +496,17 @@ def run_evaluation() -> None:
         except Exception:
             cfg = DEFAULT_CONFIG
 
-    env = DummyVecEnv([lambda: DataCenterEnv(cfg)])
-    runner = EvaluationRunner(cfg, env, evaluation_seed=args.seed)
-    _, baseline_temps, baseline_powers, baseline_metrics = runner.evaluate_baseline(args.steps)
+    baseline_env = build_evaluation_env(cfg)
+    baseline_runner = EvaluationRunner(cfg, baseline_env, evaluation_seed=args.seed)
+    _, baseline_temps, baseline_powers, baseline_metrics = baseline_runner.evaluate_baseline(args.steps)
     baseline_history = {
         "temps": baseline_temps,
         "powers": baseline_powers,
-        "it_powers": runner.baseline_it_powers,
-        "cooling_powers": runner.baseline_cooling_powers,
+        "it_powers": baseline_runner.baseline_it_powers,
+        "cooling_powers": baseline_runner.baseline_cooling_powers,
     }
+    if hasattr(baseline_env, "close"):
+        baseline_env.close()
 
     model_paths = [item.strip() for item in args.models.split(",") if item.strip()]
     model_metrics_dict: Dict[str, Dict[str, Any]] = {}
@@ -432,21 +520,27 @@ def run_evaluation() -> None:
             print(f"Model not found: {path}")
             continue
         model_name = path.stem.replace("scari_", "").replace("_final", "").upper() or "SCARI"
+        vecnormalize_path = find_vecnormalize_stats_path(path)
+        model_env = build_evaluation_env(cfg, vecnormalize_path)
+        model_runner = EvaluationRunner(cfg, model_env, evaluation_seed=args.seed)
         try:
             trained_model = PPO.load(str(path))
-            model_rewards, model_temps, model_powers, model_metrics, decisions = runner.evaluate_model(
+            model_rewards, model_temps, model_powers, model_metrics, decisions = model_runner.evaluate_model(
                 trained_model, model_name=model_name, num_steps=args.steps,
             )
             model_metrics_dict[model_name] = model_metrics.to_dict()
             model_data_dict[model_name] = {
                 "temps": model_temps,
                 "powers": model_powers,
-                "it_powers": runner.model_it_powers,
-                "cooling_powers": runner.model_cooling_powers,
+                "it_powers": model_runner.model_it_powers,
+                "cooling_powers": model_runner.model_cooling_powers,
             }
             decisions_dict[model_name] = decisions
         except Exception as exc:
             print(f"Failed to evaluate model {model_name}: {exc}")
+        finally:
+            if hasattr(model_env, "close"):
+                model_env.close()
 
     metrics_path = output_dir / "metrics.json"
     with metrics_path.open("w", encoding="utf-8") as handle:
@@ -483,7 +577,7 @@ def run_evaluation() -> None:
     print(f"{'=' * 60}")
     print(
         f"Baseline reference : {baseline_metrics.controller_name} "
-        f"(target {runner.baseline.target_temp:.1f}C, PUE {baseline_metrics.average_pue:.3f})"
+        f"(target {baseline_runner.baseline.target_temp:.1f}C, PUE {baseline_metrics.average_pue:.3f})"
     )
     for name, metrics in model_metrics_dict.items():
         energy_savings = (
@@ -495,6 +589,11 @@ def run_evaluation() -> None:
         print(f"  [{name}] SCARI PUE       : {metrics.get('average_pue', 1.0):.3f}")
         print(f"  [{name}] Avg / Max temp  : {metrics['average_temperature']:.1f}C / {metrics['max_temperature']:.1f}C")
         print(f"  [{name}] Violations      : {metrics.get('safety_violations', 0)}")
+        print(
+            f"  [{name}] Override use    : "
+            f"{metrics.get('safety_override_rate_percent', 0.0):.1f}% steps, "
+            f"avg +{metrics.get('safety_override_avg_fraction_active', 0.0) * 100:.1f}% when active"
+        )
         print("-" * 60)
 
 

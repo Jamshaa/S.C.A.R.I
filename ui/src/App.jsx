@@ -57,6 +57,16 @@ const getComparisonStats = (baseline = {}, candidate = {}) => {
     : totalSavingsPct;
   return { totalSavingsPct, overheadSavingsPct, coolingSavingsPct, pueOverheadReductionPct };
 };
+const inferEvaluationConfig = (modelName = '') => {
+  const normalized = modelName.toLowerCase();
+  if (normalized.includes('liquid') || normalized.includes('water') || normalized.includes('hydro')) {
+    return 'configs/liquid.yaml';
+  }
+  if (normalized.includes('hybrid')) {
+    return 'configs/hybrid.yaml';
+  }
+  return 'configs/default.yaml';
+};
 const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
@@ -381,7 +391,8 @@ const App = () => {
         body: JSON.stringify({
           model: selectedModel,
           steps: evalSteps,
-          name: evalName
+          name: evalName,
+          config: inferEvaluationConfig(selectedModel)
         })
       });
       if (!res.ok) throw new Error(await res.text());
@@ -896,6 +907,9 @@ const App = () => {
                 const {
                   totalSavingsPct
                 } = getComparisonStats(b, s);
+                const safetyOverrideRate = Number(s.safety_override_rate_percent || 0);
+                const safetyOverrideRateBaseline = Number(b.safety_override_rate_percent || 0);
+                const safetyOverrideAvgActive = Number(s.safety_override_avg_fraction_active || 0) * 100;
                 const metrics = [
                   {
                     label: 'Total Facility Reduction',
@@ -905,11 +919,11 @@ const App = () => {
                     desc: ''
                   },
                   {
-                    label: `Best PUE (${bestModelName})`,
+                    label: `PUE (${bestModelName})`,
                     value: s.average_pue.toFixed(3),
                     icon: Activity,
                     color: 'var(--text)',
-                    desc: ''
+                    desc: `Baseline: ${b.average_pue.toFixed(3)}`
                   },
                   {
                     label: 'Avg Temperature',
@@ -917,6 +931,13 @@ const App = () => {
                     icon: ThermometerSun,
                     color: s.average_temperature > 55 ? 'var(--danger)' : 'var(--text)',
                     desc: `Max: ${s.max_temperature.toFixed(1)}°C`
+                  },
+                  {
+                    label: 'Safety Override',
+                    value: `${safetyOverrideRate.toFixed(1)}% steps`,
+                    icon: Shield,
+                    color: safetyOverrideRate > 10 ? 'var(--warning)' : 'var(--success)',
+                    desc: `Avg +${safetyOverrideAvgActive.toFixed(1)}% when active · Baseline ${safetyOverrideRateBaseline.toFixed(1)}%`
                   },
                   {
                     label: 'Safety Violations',

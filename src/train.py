@@ -90,6 +90,7 @@ def run_training():
     model_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     np.random.seed(args.seed)
+    saved_model_name = None
     print('=' * 70)
     print('🚀 S.C.A.R.I — PRODUCTION TRAINING ENGINE')
     print('=' * 70)
@@ -134,25 +135,30 @@ def run_training():
         model.learn(total_timesteps=cfg.training.timesteps, callback=checkpoint_callback, tb_log_name='PPO_Production')
         print('\n✅ Training complete!')
         model.save(model_dir / args.output_name)
+        saved_model_name = args.output_name
     except KeyboardInterrupt:
         print('\n⚠️  Training interrupted manually.')
         model.save(model_dir / 'scari_crash_dump')
+        saved_model_name = 'scari_crash_dump'
         print(f"💾 Crash dump saved to {model_dir / 'scari_crash_dump'}")
     except Exception as e:
         logger.error(f'Training crashed: {e}', exc_info=True)
         model.save(model_dir / 'scari_crash_dump')
+        saved_model_name = 'scari_crash_dump'
         print(f'\n🔥 CRITICAL ERROR: {e}')
         print(f"💾 Crash dump saved to {model_dir / 'scari_crash_dump'}")
         raise e
     finally:
         try:
-            if 'env' in locals():
-                env.close()
             model_dir.mkdir(parents=True, exist_ok=True)
             if 'env' in locals() and hasattr(env, 'save'):
                 env.save(model_dir / 'vec_normalize.pkl')
+                if saved_model_name:
+                    env.save(model_dir / f'{Path(saved_model_name).stem}_vec_normalize.pkl')
             cfg.to_json(model_dir / 'config.json')
             print(f'📝 Config saved to {model_dir}')
+            if 'env' in locals():
+                env.close()
         except Exception as e:
             logger.error(f'Failed to save final artifacts: {e}')
         import sys

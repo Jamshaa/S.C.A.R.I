@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   BarChart3, Leaf, Zap, DollarSign, Share2,
   TrendingDown, AlertCircle, CheckCircle2, Loader2,
@@ -45,18 +45,26 @@ const PRESETS = {
     }
   }
 };
-const REGION_DATA = {
-  EU:   { price: 0.18, currency: '€', label: 'Europe',    intensity: 0.255 },
-  ES:   { price: 0.14, currency: '€', label: 'Spain',     intensity: 0.184 },
-  DE:   { price: 0.22, currency: '€', label: 'Germany',   intensity: 0.380 },
-  UK:   { price: 0.24, currency: '£', label: 'UK',        intensity: 0.160 },
-  FR:   { price: 0.12, currency: '€', label: 'France',    intensity: 0.055 },
-  NO:   { price: 0.09, currency: '€', label: 'Norway',    intensity: 0.025 },
-  US:   { price: 0.08, currency: '$', label: 'USA',       intensity: 0.386 },
-  BR:   { price: 0.11, currency: '$', label: 'Brazil',    intensity: 0.085 },
-  CA:   { price: 0.07, currency: '$', label: 'Canada',    intensity: 0.120 },
-  IN:   { price: 0.07, currency: '$', label: 'India',     intensity: 0.700 },
-  ASIA: { price: 0.07, currency: '$', label: 'Asia-Pac',  intensity: 0.500 },
+const DEFAULT_REGION_OPTION = {
+  code: 'EU',
+  label: 'Europe',
+  price_per_kwh: 0.18,
+  carbon_intensity_kg_kwh: 0.255,
+  currency_code: 'EUR',
+  currency_symbol: '€'
+};
+
+const formatMoney = (value, regionInfo, maximumFractionDigits = 0) => new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: regionInfo?.currency_code || DEFAULT_REGION_OPTION.currency_code,
+  maximumFractionDigits
+}).format(value);
+
+const formatCompactMoney = (value, regionInfo) => {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${formatMoney(value / 1_000_000, regionInfo, 1)}M`;
+  if (abs >= 1_000) return `${formatMoney(value / 1_000, regionInfo, 0)}k`;
+  return formatMoney(value, regionInfo, 0);
 };
 const getOptimizationSavingsPct = (sustainability) => (
   sustainability?.optimization_savings_percent
@@ -95,18 +103,51 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     investment_eur: 500000,
     annual_savings_eur: 100000
   });
+  const [regionOptions, setRegionOptions] = useState([DEFAULT_REGION_OPTION]);
+  const activeRegionInfo = useMemo(() => (
+    regionOptions.find(option => option.code === formData.region)
+    || regionOptions[0]
+    || DEFAULT_REGION_OPTION
+  ), [formData.region, regionOptions]);
+  const resultsRegionInfo = useMemo(() => {
+    const regionCode = results?.summary?.region || formData.region;
+    return regionOptions.find(option => option.code === regionCode) || activeRegionInfo;
+  }, [results, formData.region, regionOptions, activeRegionInfo]);
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCalculatorInfo = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/calculator/info`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted || !Array.isArray(data.regions) || data.regions.length === 0) return;
+        setRegionOptions(data.regions);
+        setFormData(prev => (
+          data.regions.some(option => option.code === prev.region)
+            ? prev
+            : { ...prev, region: data.regions[0].code }
+        ));
+      } catch (error) {
+        console.debug('Failed to load calculator metadata', error);
+      }
+    };
+    fetchCalculatorInfo();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   const estimatedSavings = useMemo(() => {
-    const { annual_power_kwh, baseline_pue, optimized_pue, region } = formData;
-    const regionInfo = REGION_DATA[region] || REGION_DATA.EU;
+    const { annual_power_kwh, baseline_pue, optimized_pue } = formData;
+    const regionInfo = activeRegionInfo;
     const baselineEnergy = annual_power_kwh * baseline_pue;
     const optimizedEnergy = annual_power_kwh * optimized_pue;
     const energySavedKwh = Math.max(0, baselineEnergy - optimizedEnergy);
-    const costSaved = energySavedKwh * regionInfo.price;
-    const co2Saved  = energySavedKwh * regionInfo.intensity;
+    const costSaved = energySavedKwh * regionInfo.price_per_kwh;
+    const co2Saved  = energySavedKwh * regionInfo.carbon_intensity_kg_kwh;
     const pueReduction = ((baseline_pue - optimized_pue) / baseline_pue) * 100;
     const energySavingPct = (energySavedKwh / baselineEnergy) * 100;
     return { energySavedKwh, costSaved, co2Saved, pueReduction, energySavingPct, regionInfo };
-  }, [formData]);
+  }, [activeRegionInfo, formData]);
   const importFromEval = (evalData = evalResults) => {
     const src = evalData?.sustainability;
     if (!evalData || !src) {
@@ -125,7 +166,10 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     setSelectedPreset(null);
     setShowHistory(false);
     setIsLocked(true);
-    onToast?.(`Imported: PUE ${avgPUE.toFixed(3)}, ${savings_pct.toFixed(1)}% ${savings_label}`, 'success');
+    onToast?.(
+      `Imported evaluation PUEs: ${avgPUE.toFixed(3)} optimised, ${savings_pct.toFixed(1)}% ${savings_label}. Annual IT energy and region remain manual assumptions.`,
+      'success'
+    );
   };
   const fetchHistory = async () => {
     setLoadingHistory(true);
@@ -195,7 +239,8 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
           body: JSON.stringify({ 
             num_servers: formData.num_servers, 
             investment_eur: roiData.investment_eur,
-            annual_savings_eur: estimatedSavings.costSaved 
+            annual_savings_eur: estimatedSavings.costSaved,
+            region: formData.region
           })
         });
         if (roiRes.ok) final.roi = (await roiRes.json()).data;
@@ -310,7 +355,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               Live Projection
             </span>
             <span className="badge" style={{ fontWeight: 500 }}>
-              {estimatedSavings.regionInfo.label} · {estimatedSavings.regionInfo.currency}{estimatedSavings.regionInfo.price}/kWh
+              {estimatedSavings.regionInfo.label} · {estimatedSavings.regionInfo.currency_symbol}{estimatedSavings.regionInfo.price_per_kwh}/kWh
             </span>
           </div>
           <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
@@ -325,9 +370,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
             <div>
               <div className="text-label">Cost Delta</div>
               <div style={{ fontWeight: 800, color: 'var(--success)', fontSize: '20px', letterSpacing: '-0.02em', marginTop: '2px' }}>
-                {estimatedSavings.regionInfo.currency}{estimatedSavings.costSaved >= 1_000_000
-                  ? `${(estimatedSavings.costSaved / 1_000_000).toFixed(1)}M`
-                  : estimatedSavings.costSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {formatCompactMoney(estimatedSavings.costSaved, estimatedSavings.regionInfo)}
               </div>
             </div>
             <div>
@@ -386,14 +429,17 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
                   {isLocked ? <Lock size={13} color="var(--accent)" /> : <Unlock size={13} color="var(--muted)" />}
                   <span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '12px' }}>
-                    Telemetry Source
+                    Evaluation Import
                   </span>
-                  {isLocked && <span className="badge badge-accent">Locked</span>}
+                  {isLocked && <span className="badge badge-accent">PUE locked</span>}
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                   {evalResults?.sustainability
-                    ? `Active: ${getOptimizationSavingsPct(evalResults.sustainability).toFixed(1)}% ${getOptimizationSavingsLabel(evalResults.sustainability.optimization_savings_basis)} detected`
-                    : 'No external telemetry linked'}
+                    ? `Ready: latest evaluation exposes ${getOptimizationSavingsPct(evalResults.sustainability).toFixed(1)}% ${getOptimizationSavingsLabel(evalResults.sustainability.optimization_savings_basis)}`
+                    : 'No evaluation telemetry linked'}
+                </p>
+                <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px', lineHeight: 1.5, maxWidth: '520px' }}>
+                  Only baseline and optimised PUE are imported from evaluation telemetry. Server count, topology, annual IT energy and region stay as manual planning assumptions.
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -406,16 +452,16 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   onClick={() => importFromEval(evalResults)}
                   disabled={!evalResults?.sustainability}
                 >
-                  Import Latest
+                  Import Latest PUE
                 </button>
                 {isLocked && (
                   <button
                     className="btn btn-outline btn-sm"
-                    onClick={() => { setIsLocked(false); onToast?.('Fields unlocked for manual editing', 'success'); }}
-                    title="Unlock fields for manual editing"
+                    onClick={() => { setIsLocked(false); onToast?.('Imported PUE fields unlocked for manual editing', 'success'); }}
+                    title="Unlock imported PUE fields for manual editing"
                   >
                     <Unlock size={11} />
-                    Unlock
+                    Unlock PUE
                   </button>
                 )}
               </div>
@@ -445,7 +491,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontWeight: 600, fontSize: '12px' }}>{run.timestamp}</p>
                           <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                            {run.steps?.toLocaleString()} steps · PUE {run.pue ? run.pue.toFixed(3) : 'N/A'}
+                            {run.steps?.toLocaleString()} steps · PUE {run.pue ? run.pue.toFixed(3) : 'N/A'} · {run.model || 'SCARI'}
                           </p>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
@@ -479,13 +525,12 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 type="number"
                 value={formData.num_servers}
                 onChange={e => handleInputChange('num_servers', parseInt(e.target.value) || 0)}
-                disabled={isLocked}
               />
               <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>Physical servers in facility</p>
             </div>
             <div>
               <label>Network Topology</label>
-              <select value={formData.topology} onChange={e => handleInputChange('topology', e.target.value)} disabled={isLocked}>
+              <select value={formData.topology} onChange={e => handleInputChange('topology', e.target.value)}>
                 <option value="fat_tree">Fat-Tree (full bisection BW)</option>
                 <option value="clos">Clos (3-tier folded)</option>
                 <option value="spine_leaf">Spine-Leaf (2-tier)</option>
@@ -498,7 +543,6 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                 type="number"
                 value={formData.annual_power_kwh}
                 onChange={e => handleInputChange('annual_power_kwh', parseFloat(e.target.value) || 0)}
-                disabled={isLocked}
               />
               <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>
                 IT equipment load only — overhead added via PUE
@@ -506,9 +550,11 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
             </div>
             <div>
               <label>Region</label>
-              <select value={formData.region} onChange={e => handleInputChange('region', e.target.value)} disabled={isLocked}>
-                {Object.entries(REGION_DATA).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label} ({v.currency}{v.price}/kWh · {v.intensity} kgCO₂/kWh)</option>
+              <select value={formData.region} onChange={e => handleInputChange('region', e.target.value)}>
+                {regionOptions.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label} ({option.currency_symbol}{option.price_per_kwh}/kWh · {option.carbon_intensity_kg_kwh} kgCO₂/kWh)
+                  </option>
                 ))}
               </select>
             </div>
@@ -592,7 +638,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
-                  <label>Capital Investment (€)</label>
+                  <label>Capital Investment ({activeRegionInfo.currency_symbol})</label>
                   <input
                     type="number"
                     value={roiData.investment_eur}
@@ -603,12 +649,12 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   <label>Expected Annual Savings (Auto-calculated)</label>
                   <input
                     type="text"
-                    value={`${estimatedSavings.regionInfo.currency}${estimatedSavings.costSaved.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                    value={formatMoney(estimatedSavings.costSaved, estimatedSavings.regionInfo, 0)}
                     disabled={true}
                     style={{ background: 'var(--surface-raised)', color: 'var(--success)', fontWeight: 'bold' }}
                   />
                   <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '-10px' }}>
-                    Derivado directamente del ahorro en refrigeración.
+                    Derived from total facility energy delta and the selected regional electricity price.
                   </p>
                 </div>
               </div>
@@ -675,7 +721,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                       />
                       <MetricCard
                         label="Cost Savings"
-                        value={`€${(results.operational.improvements.cost_savings_eur / 1000).toFixed(0)}k`}
+                        value={formatCompactMoney(results.operational.improvements.cost_savings_eur, resultsRegionInfo)}
                         unit="/yr"
                         icon={DollarSign}
                         accent
@@ -753,7 +799,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                     />
                     <MetricCard
                       label="10-yr Net Benefit"
-                      value={`€${(results.roi.ten_year_net_benefit_eur / 1000).toFixed(0)}k`}
+                      value={formatCompactMoney(results.roi.ten_year_net_benefit_eur, resultsRegionInfo)}
                       icon={CircleDollarSign}
                     />
                   </div>

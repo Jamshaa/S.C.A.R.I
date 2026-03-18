@@ -1,4 +1,8 @@
-from src.evaluate import EvaluationRunner, build_realistic_baseline
+from pathlib import Path
+
+import pytest
+
+from src.evaluate import EvaluationRunner, build_realistic_baseline, find_vecnormalize_stats_path
 from src.utils.config import Config
 
 
@@ -43,3 +47,52 @@ def test_build_realistic_baseline_uses_traditional_enterprise_profile():
     assert baseline.strategy == "TRADITIONAL_ENTERPRISE"
     assert baseline.target_temp == 47.0
     assert baseline.min_action == 0.35
+
+
+def test_find_vecnormalize_stats_path_prefers_model_specific_file(monkeypatch):
+    model_path = Path("C:/fake/models/scari_liquid.zip")
+    shared_stats = model_path.parent / "vec_normalize.pkl"
+    model_stats = model_path.with_name("scari_liquid_vec_normalize.pkl")
+
+    def fake_exists(self):
+        return self in {shared_stats, model_stats}
+
+    monkeypatch.setattr(type(model_path), "exists", fake_exists)
+
+    assert find_vecnormalize_stats_path(model_path) == model_stats
+
+
+def test_find_vecnormalize_stats_path_falls_back_to_shared_file(monkeypatch):
+    model_path = Path("C:/fake/models/scari_default.zip")
+    shared_stats = model_path.parent / "vec_normalize.pkl"
+
+    def fake_exists(self):
+        return self == shared_stats
+
+    monkeypatch.setattr(type(model_path), "exists", fake_exists)
+
+    assert find_vecnormalize_stats_path(model_path) == shared_stats
+
+
+def test_compute_metrics_reports_safety_override_usage():
+    runner = EvaluationRunner(Config(), FakeVecEnv(), evaluation_seed=42)
+
+    metrics = runner._compute_metrics(
+        controller_name="SCARI",
+        rewards=[1.0, 0.5, 0.2],
+        temps=[50.0, 51.0, 52.0],
+        powers=[900.0, 910.0, 920.0],
+        it_powers=[700.0, 705.0, 710.0],
+        cooling_powers=[120.0, 118.0, 116.0],
+        healths=[1.0, 0.99, 0.98],
+        actions=[0.2, 0.25, 0.3],
+        violations=0,
+        override_steps=2,
+        override_fractions=[0.0, 0.1, 0.2],
+    )
+
+    assert metrics.safety_override_steps == 2
+    assert metrics.safety_override_rate_percent == pytest.approx(66.66666666666666)
+    assert metrics.safety_override_avg_fraction == pytest.approx(0.1)
+    assert metrics.safety_override_avg_fraction_active == pytest.approx(0.15)
+    assert metrics.safety_override_max_fraction == pytest.approx(0.2)

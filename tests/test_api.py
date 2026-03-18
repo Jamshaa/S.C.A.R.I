@@ -62,6 +62,8 @@ def test_build_history_summary_supports_current_metrics_shape():
         "overhead_savings_percent": 20.0,
         "cooling_savings_percent": 20.0,
         "savings_basis": "total_power",
+        "safety_override_rate_percent": 0.0,
+        "safety_override_avg_fraction_active": 0.0,
         "steps": 1500,
         "model": "scari_safe",
     }
@@ -70,6 +72,54 @@ def test_build_history_summary_supports_current_metrics_shape():
 def test_evaluation_request_defaults_to_default_config():
     params = api_app.EvaluationRequest(model="example.zip")
     assert params.config.endswith("default.yaml")
+
+
+def test_choose_evaluation_config_infers_liquid_profile_from_model_name():
+    selected = api_app.choose_evaluation_config("configs/default.yaml", ["scari_water_model.zip"])
+    assert selected.endswith("liquid.yaml")
+
+
+def test_choose_evaluation_config_infers_hybrid_profile_from_model_name():
+    selected = api_app.choose_evaluation_config("configs/default.yaml", ["scari_hybrid_model.zip"])
+    assert selected.endswith("hybrid.yaml")
+
+
+def test_choose_evaluation_config_preserves_explicit_config_choice():
+    selected = api_app.choose_evaluation_config("configs/liquid.yaml", ["scari_air_model.zip"])
+    assert selected.endswith("liquid.yaml")
+
+
+def test_choose_evaluation_config_keeps_default_for_mixed_mode_comparison():
+    selected = api_app.choose_evaluation_config(
+        "configs/default.yaml",
+        ["scari_air_model.zip", "scari_water_model.zip"],
+    )
+    assert selected.endswith("default.yaml")
+
+
+def test_calculator_info_exposes_region_catalog():
+    response = client.get("/calculator/info")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "regions" in payload
+    assert any(region["code"] == "ES" for region in payload["regions"])
+    assert any(region["currency_symbol"] == "€" for region in payload["regions"])
+
+
+def test_roi_analysis_uses_requested_region():
+    response = client.post(
+        "/calculator/roi-analysis",
+        json={
+            "num_servers": 100,
+            "investment_eur": 1000,
+            "annual_savings_eur": 120,
+            "region": "UK",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["annual_carbon_avoided_kg"] == 80.0
+    assert data["payback_period_years"] == pytest.approx(8.3)
 
 
 def test_build_sustainability_supports_current_metrics_shape():
@@ -103,6 +153,8 @@ def test_build_history_summary_prefers_non_it_overhead_when_available():
                 "total_it_power_consumption": 820.0,
                 "total_cooling_power_consumption": 80.0,
                 "average_pue": 1.10,
+                "safety_override_rate_percent": 4.5,
+                "safety_override_avg_fraction_active": 0.08,
                 "total_steps": 1500,
             }
         },
@@ -114,6 +166,8 @@ def test_build_history_summary_prefers_non_it_overhead_when_available():
     assert summary["overhead_savings_percent"] == 60.0
     assert summary["cooling_savings_percent"] == 60.0
     assert summary["savings_basis"] == "non_it_overhead"
+    assert summary["safety_override_rate_percent"] == 4.5
+    assert summary["safety_override_avg_fraction_active"] == 0.08
 
 
 def test_build_sustainability_uses_measured_pue_and_overhead_metrics():

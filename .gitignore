@@ -45,6 +45,9 @@ data/results/*
 outputs/eval/*
 !outputs/eval/.gitkeep
 .pytest_cache/
+pytest-cache-files-*
+tmp/
+tmp*/
 .vscode/
 .idea/
 *.log

@@ -90,6 +90,82 @@ def resolve_config_path(value: str) -> Path:
     return candidate
 
 
+MODE_TO_CONFIG = {
+    "AIR": "configs/default.yaml",
+    "LIQUID": "configs/liquid.yaml",
+    "HYBRID": "configs/hybrid.yaml",
+}
+
+CURRENCY_SYMBOLS = {
+    "EUR": "€",
+    "GBP": "£",
+    "USD": "$",
+}
+
+REGION_LABELS = {
+    "EU": "Europe",
+    "ES": "Spain",
+    "DE": "Germany",
+    "UK": "United Kingdom",
+    "FR": "France",
+    "NO": "Norway",
+    "US": "United States",
+    "BR": "Brazil",
+    "CA": "Canada",
+    "IN": "India",
+    "ASIA": "Asia-Pacific",
+}
+
+
+def infer_model_mode(model_name: str) -> Optional[str]:
+    normalized = Path(model_name).stem.lower()
+    if any(token in normalized for token in ("liquid", "water", "hydro")):
+        return "LIQUID"
+    if "hybrid" in normalized:
+        return "HYBRID"
+    if "air" in normalized:
+        return "AIR"
+    return None
+
+
+def choose_evaluation_config(requested_config: str, model_names: List[str]) -> str:
+    resolved_requested = resolve_config_path(requested_config)
+    default_config = resolve_config_path(MODE_TO_CONFIG["AIR"])
+    if resolved_requested != default_config:
+        return str(resolved_requested)
+
+    inferred_modes = {
+        infer_model_mode(model_name)
+        for model_name in model_names
+        if infer_model_mode(model_name) is not None
+    }
+    if len(inferred_modes) != 1:
+        return str(resolved_requested)
+
+    inferred_mode = inferred_modes.pop()
+    inferred_config = resolve_config_path(MODE_TO_CONFIG[inferred_mode])
+    logger.info("Auto-selected evaluation config %s for model(s): %s", inferred_config.name, ", ".join(model_names))
+    return str(inferred_config)
+
+
+def build_region_catalog() -> List[Dict[str, Any]]:
+    regions: List[Dict[str, Any]] = []
+    for code in sorted(GreenDCCalculator.REGION_DATA.keys()):
+        region_data = GreenDCCalculator.REGION_DATA[code]
+        currency_code = region_data["currency"]
+        regions.append(
+            {
+                "code": code,
+                "label": REGION_LABELS.get(code, code),
+                "price_per_kwh": region_data["price"],
+                "carbon_intensity_kg_kwh": region_data["intensity"],
+                "currency_code": currency_code,
+                "currency_symbol": CURRENCY_SYMBOLS.get(currency_code, currency_code),
+            }
+        )
+    return regions
+
+
 def get_api_key() -> str:
     return os.getenv("SCARI_API_KEY", "").strip()
 
@@ -196,6 +272,8 @@ def build_history_summary(entry_name: str, metrics: Dict[str, Any]) -> Dict[str,
         "overhead_savings_percent": round(float(summary["non_it_overhead_savings_percent"]), 2),
         "cooling_savings_percent": round(float(summary["cooling_savings_percent"]), 2),
         "savings_basis": summary["savings_basis"],
+        "safety_override_rate_percent": round(float(primary.get("safety_override_rate_percent", 0.0)), 2),
+        "safety_override_avg_fraction_active": round(float(primary.get("safety_override_avg_fraction_active", 0.0)), 4),
         "steps": int(primary.get("total_steps", 5000)),
         "model": model_name,
     }
@@ -718,6 +796,7 @@ async def run_evaluation(
     run_dir = OUTPUTS_DIR / f"{clean_name}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     models_arg = ",".join(models_to_test)
+    selected_config = choose_evaluation_config(params.config, [Path(model_path).name for model_path in models_to_test])
 
     def run_eval_with_lock(selected_models: str, selected_steps: int, destination: Path, config_path: str) -> None:
         try:
@@ -725,7 +804,7 @@ async def run_evaluation(
         finally:
             evaluation_lock.release()
 
-    background_tasks.add_task(run_eval_with_lock, models_arg, params.steps, run_dir, params.config)
+    background_tasks.add_task(run_eval_with_lock, models_arg, params.steps, run_dir, selected_config)
     return {"message": "Evaluation started", "run_name": run_dir.name}
 
 
@@ -807,12 +886,21 @@ class ROIParams(BaseModel):
     num_servers: int
     investment_eur: float
     annual_savings_eur: float
+    region: str = "EU"
 
     @field_validator("investment_eur", "annual_savings_eur")
     @classmethod
     def validate_positive(cls, value: float) -> float:
         if value < 0:
             raise ValueError("Values must be non-negative")
+        return value
+
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, value: str) -> str:
+        valid_regions = set(GreenDCCalculator.REGION_DATA.keys())
+        if value not in valid_regions:
+            raise ValueError(f"region must be one of {sorted(valid_regions)}")
         return value
 
 
@@ -842,7 +930,8 @@ async def compare_scenarios(params: DataCenterParams) -> Dict[str, Any]:
 
 @app.post("/calculator/roi-analysis")
 async def analyze_roi(params: ROIParams) -> Dict[str, Any]:
-    result = greendc.roi_analysis(
+    calc = GreenDCCalculator(region=params.region)
+    result = calc.roi_analysis(
         num_servers=params.num_servers,
         investment_eur=params.investment_eur,
         annual_savings_eur=params.annual_savings_eur,
@@ -882,6 +971,7 @@ async def comprehensive_analysis(params: DataCenterParams) -> Dict[str, Any]:
 
 @app.get("/calculator/info")
 async def calculator_info() -> Dict[str, Any]:
+    regions = build_region_catalog()
     return {
         "version": "2.1.0",
         "calculators": [
@@ -912,7 +1002,8 @@ async def calculator_info() -> Dict[str, Any]:
             },
         ],
         "supported_topologies": ["fat_tree", "clos", "spine_leaf", "three_tier"],
-        "supported_regions": sorted(GreenDCCalculator.REGION_DATA.keys()),
+        "supported_regions": [region["code"] for region in regions],
+        "regions": regions,
         "default_parameters": {
             "electricity_price_eur_kwh": greendc.price,
             "carbon_intensity_kg_kwh": greendc.intensity,
