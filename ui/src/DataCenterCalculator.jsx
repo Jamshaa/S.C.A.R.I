@@ -7,6 +7,15 @@ import {
   Lock, Unlock, Trash2, Clock
 } from 'lucide-react';
 import { API_BASE } from './config';
+const sanitiseText = (value = '') => String(value)
+  .replaceAll('â€“', '-')
+  .replaceAll('Â·', '·')
+  .replaceAll('â‚¬', '€')
+  .replaceAll('COâ‚‚', 'CO₂')
+  .replaceAll('â€”', '—')
+  .replaceAll('Î”', 'Δ')
+  .replaceAll('âˆž', '∞')
+  .replaceAll('Â', '');
 const PRESETS = {
   small: {
     name: 'Edge / Small',
@@ -314,7 +323,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
             Sustainability Calculator
           </h2>
           <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-            Carbon footprint · OpEx impact · ROI projection
+            {sanitiseText('Carbon footprint · OpEx impact · ROI projection')}
           </p>
         </div>
         {results && (
@@ -355,7 +364,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               Live Projection
             </span>
             <span className="badge" style={{ fontWeight: 500 }}>
-              {estimatedSavings.regionInfo.label} · {estimatedSavings.regionInfo.currency_symbol}{estimatedSavings.regionInfo.price_per_kwh}/kWh
+              {sanitiseText(estimatedSavings.regionInfo.label)} · {sanitiseText(estimatedSavings.regionInfo.currency_symbol)}{estimatedSavings.regionInfo.price_per_kwh}/kWh
             </span>
           </div>
           <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
@@ -418,7 +427,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
                   </span>
                 </div>
                 <p style={{ fontSize: '11px', color: selectedPreset === key ? 'var(--text-inverse)' : 'var(--muted)', opacity: 0.85, lineHeight: 1.4 }}>
-                  {preset.description}
+                  {sanitiseText(preset.description)}
                 </p>
               </button>
             ))}
@@ -553,7 +562,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
               <select value={formData.region} onChange={e => handleInputChange('region', e.target.value)}>
                 {regionOptions.map((option) => (
                   <option key={option.code} value={option.code}>
-                    {option.label} ({option.currency_symbol}{option.price_per_kwh}/kWh · {option.carbon_intensity_kg_kwh} kgCO₂/kWh)
+                    {sanitiseText(option.label)} ({sanitiseText(option.currency_symbol)}{option.price_per_kwh}/kWh · {option.carbon_intensity_kg_kwh} kgCO₂/kWh)
                   </option>
                 ))}
               </select>

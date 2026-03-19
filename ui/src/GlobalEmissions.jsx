@@ -74,7 +74,36 @@ const renewCol = (country) => {
 };
 const COUNTRY_LABEL_CODES = new Set(['CN', 'US', 'IN', 'RU', 'JP', 'DE', 'BR', 'AU', 'ZA', 'SA', 'FR', 'GB', 'CA']);
 const getRenewableShare = (country) => country.hydro + country.wind + country.solar + (country.other || 0);
+const getCoalShare = (country) => country.coal || 0;
 const getEmissionIntensity = (country) => country.co2 / Math.max(country.energy, 1);
+const getCountryFlag = (country) => country.code
+  .toUpperCase()
+  .split('')
+  .map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
+  .join('');
+const getPlumePalette = (country) => {
+    const coal = clamp(getCoalShare(country), 0, 100) / 100;
+    const renewable = clamp(getRenewableShare(country), 0, 100) / 100;
+    const soot = clamp(0.35 + coal * 0.85 - renewable * 0.45, 0.18, 1);
+    const bright = clamp(0.22 + renewable * 0.55 - coal * 0.12, 0.12, 0.62);
+    const hazeLight = Math.round(232 - soot * 118 + bright * 30);
+    const hazeWarm = Math.round(10 + soot * 24);
+    const hazeCool = Math.round(bright * 28);
+    return {
+        haze: [
+            clamp(hazeLight - hazeWarm, 92, 245),
+            clamp(hazeLight - Math.round(hazeWarm * 0.35), 92, 245),
+            clamp(hazeLight + hazeCool, 92, 245),
+        ],
+        ember: [
+            clamp(176 - soot * 72, 88, 210),
+            clamp(174 - soot * 62, 88, 210),
+            clamp(178 - soot * 54 + hazeCool, 88, 225),
+        ],
+        soot,
+        bright,
+    };
+};
 
 const drawBackdrop = (ctx, w, h, timeMs) => {
     const bg = ctx.createLinearGradient(0, 0, w, h);
@@ -130,22 +159,37 @@ const drawBackdrop = (ctx, w, h, timeMs) => {
 };
 
 const drawEmissionPlume = (ctx, px, py, scale, country, timeMs, isSelected) => {
-    const intensity = clamp(country.co2 / 5000, 0.08, 1);
-    const plumeHeight = (35 + intensity * 65) * scale;
-    const particleCount = 7 + Math.round(intensity * 10);
+    const intensity = clamp(country.co2 / 4500, 0.1, 1);
+    const plumeHeight = (46 + intensity * 82) * scale;
+    const particleCount = 10 + Math.round(intensity * 14);
+    const palette = getPlumePalette(country);
+    const [hr, hg, hb] = palette.haze;
+    const [er, eg, eb] = palette.ember;
+    const baseAlpha = 0.07 + intensity * 0.11 + (isSelected ? 0.06 : 0);
+
+    for (let h = 0; h < 2; h++) {
+        const haze = ctx.createRadialGradient(px, py - h * 8 * scale, 0, px, py - h * 8 * scale, (16 + intensity * 28) * scale);
+        haze.addColorStop(0, `rgba(${hr},${hg},${hb},${baseAlpha})`);
+        haze.addColorStop(0.5, `rgba(${er},${eg},${eb},${0.045 + intensity * 0.07})`);
+        haze.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = haze;
+        ctx.beginPath();
+        ctx.arc(px, py - h * 8 * scale, (16 + intensity * 28) * scale, 0, Math.PI * 2);
+        ctx.fill();
+    }
 
     for (let s = 0; s < 3; s++) {
         const sp = (timeMs * 0.0003 + s * 0.33 + country.lat * 0.005) % 1;
         const sx = Math.sin(timeMs * 0.0008 + s * 2.1) * (3 + intensity * 5) * scale;
         const sy = -sp * plumeHeight * 0.5;
         const sa = (0.02 + intensity * 0.04) * (1 - sp);
-        ctx.fillStyle = `rgba(255,255,255,${sa})`;
+        ctx.fillStyle = `rgba(${hr},${hg},${hb},${sa})`;
         ctx.beginPath();
         ctx.ellipse(px + sx, py + sy, (4 + intensity * 8) * scale, (1.5 + intensity * 3) * scale, 0, 0, Math.PI * 2);
         ctx.fill();
     }
 
-    ctx.strokeStyle = `rgba(255,255,255,${isSelected ? 0.18 : 0.09})`;
+    ctx.strokeStyle = `rgba(${er},${eg},${eb},${isSelected ? 0.22 : 0.12})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(px, py - 2 * scale);
@@ -163,11 +207,14 @@ const drawEmissionPlume = (ctx, px, py, scale, country, timeMs, isSelected) => {
         const driftX = wanderX * phase;
         const driftY = -phase * plumeHeight + wanderY;
         const radius = (2.8 + intensity * 9) * (0.4 + (1 - phase) * 0.8) * scale;
-        const alpha = (0.05 + intensity * 0.2) * (1 - phase * phase);
-        const tone = Math.round(240 - phase * 80);
+        const alpha = (0.06 + intensity * (0.12 + palette.soot * 0.08)) * (1 - phase * phase);
+        const fade = 1 - phase * 0.72;
+        const toneR = Math.round(er * fade + hr * 0.25);
+        const toneG = Math.round(eg * fade + hg * 0.25);
+        const toneB = Math.round(eb * fade + hb * 0.25 + palette.bright * 10);
         const plume = ctx.createRadialGradient(px + driftX, py + driftY, 0, px + driftX, py + driftY, radius * 2.2);
-        plume.addColorStop(0, `rgba(${tone}, ${tone}, ${tone}, ${alpha + (isSelected ? 0.06 : 0)})`);
-        plume.addColorStop(0.45, `rgba(${tone - 20}, ${tone - 20}, ${tone - 20}, ${alpha * 0.5})`);
+        plume.addColorStop(0, `rgba(${toneR}, ${toneG}, ${toneB}, ${alpha + (isSelected ? 0.06 : 0)})`);
+        plume.addColorStop(0.45, `rgba(${Math.max(0, toneR - 24)}, ${Math.max(0, toneG - 24)}, ${Math.max(0, toneB - 20)}, ${alpha * 0.52})`);
         plume.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = plume;
         ctx.beginPath();
@@ -175,6 +222,108 @@ const drawEmissionPlume = (ctx, px, py, scale, country, timeMs, isSelected) => {
         ctx.fill();
     }
 };
+
+const getQuadraticPoint = (t, start, control, end) => ({
+    x: (1 - t) * (1 - t) * start.x + 2 * (1 - t) * t * control.x + t * t * end.x,
+    y: (1 - t) * (1 - t) * start.y + 2 * (1 - t) * t * control.y + t * t * end.y,
+});
+
+const getQuadraticTangent = (t, start, control, end) => ({
+    x: 2 * (1 - t) * (control.x - start.x) + 2 * t * (end.x - control.x),
+    y: 2 * (1 - t) * (control.y - start.y) + 2 * t * (end.y - control.y),
+});
+
+const drawAircraft = (ctx, x, y, angle, scale, alpha) => {
+    const size = clamp(scale, 0.85, 1.45);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.4})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-18 * size, 0);
+    ctx.lineTo(-30 * size, 0);
+    ctx.stroke();
+
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(12 * size, 0);
+    ctx.lineTo(1 * size, -2.6 * size);
+    ctx.lineTo(-10 * size, -6.4 * size);
+    ctx.lineTo(-6 * size, -1.8 * size);
+    ctx.lineTo(-19 * size, -1.2 * size);
+    ctx.lineTo(-19 * size, 1.2 * size);
+    ctx.lineTo(-6 * size, 1.8 * size);
+    ctx.lineTo(-10 * size, 6.4 * size);
+    ctx.lineTo(1 * size, 2.6 * size);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+};
+
+const drawFlightRoute = (ctx, startPoint, endPoint, startCountry, endCountry, routeIndex, timeMs, options = {}) => {
+    const emphasized = Boolean(options.emphasized);
+    const traffic = options.traffic || (emphasized ? 3 : 1);
+    const routeStrength = clamp((startCountry.co2 + endCountry.co2) / 14000, 0.22, 1);
+    const arcLift = (34 + routeStrength * 30) * Math.min(startPoint.scale, endPoint.scale);
+    const start = { x: startPoint.px, y: startPoint.py };
+    const end = { x: endPoint.px, y: endPoint.py };
+    const control = {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2 - arcLift - (emphasized ? 8 : 0),
+    };
+
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+    ctx.strokeStyle = `rgba(255,255,255,${0.06 + routeStrength * 0.08 + (emphasized ? 0.08 : 0)})`;
+    ctx.lineWidth = 0.7 + routeStrength * 0.35 + (emphasized ? 0.3 : 0);
+    ctx.setLineDash(emphasized ? [8, 8] : [5, 9]);
+    ctx.lineDashOffset = -timeMs * (0.02 + routeStrength * 0.02 + (emphasized ? 0.015 : 0));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const glowT = (timeMs * (0.00026 + routeStrength * 0.00008) + routeIndex * 0.21) % 1;
+    const glowPos = getQuadraticPoint(glowT, start, control, end);
+    ctx.fillStyle = `rgba(255,255,255,${0.18 + routeStrength * 0.16})`;
+    ctx.beginPath();
+    ctx.arc(glowPos.x, glowPos.y, 1.8 + routeStrength * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (let planeIndex = 0; planeIndex < traffic; planeIndex++) {
+        const planeT = (timeMs * (0.00007 + routeStrength * 0.00002 + planeIndex * 0.000003) + routeIndex * 0.17 + planeIndex * 0.28) % 1;
+        const planePos = getQuadraticPoint(planeT, start, control, end);
+        const tangent = getQuadraticTangent(planeT, start, control, end);
+        const planeAngle = Math.atan2(tangent.y, tangent.x);
+        const trailSegments = emphasized ? 11 : 7;
+
+        for (let trailIndex = trailSegments; trailIndex >= 1; trailIndex--) {
+            const currentT = (planeT - trailIndex * 0.018 + 1) % 1;
+            const nextT = (planeT - (trailIndex - 1) * 0.018 + 1) % 1;
+            const currentPoint = getQuadraticPoint(currentT, start, control, end);
+            const nextPoint = getQuadraticPoint(nextT, start, control, end);
+            const trailAlpha = (0.16 + routeStrength * 0.16 + (emphasized ? 0.08 : 0)) * (trailIndex / trailSegments);
+            ctx.strokeStyle = `rgba(255,255,255,${trailAlpha * 0.38})`;
+            ctx.lineWidth = (0.7 + routeStrength * 0.9 + (emphasized ? 0.35 : 0)) * (trailIndex / trailSegments);
+            ctx.beginPath();
+            ctx.moveTo(currentPoint.x, currentPoint.y);
+            ctx.lineTo(nextPoint.x, nextPoint.y);
+            ctx.stroke();
+        }
+
+        drawAircraft(
+            ctx,
+            planePos.x,
+            planePos.y,
+            planeAngle,
+            0.5 + routeStrength * 0.3 + (emphasized ? 0.08 : 0),
+            0.55 + routeStrength * 0.25 + (emphasized ? 0.1 : 0)
+        );
+    }
+};
+
 const MixBar = ({ label, pct, color }) => (
     <div className="ge-mix-bar-row">
         <span className="ge-mix-label">{label}</span>
@@ -339,31 +488,48 @@ const GlobalEmissions = () => {
             .filter(point => point.visible)
             .sort((a, b) => a.z - b.z);
 
-        const topEmitters = [...COUNTRIES].sort((a, b) => b.co2 - a.co2).slice(0, 5).map(c => c.code);
-        const topProjected = visibleSorted.filter(p => topEmitters.includes(COUNTRIES[p.idx].code));
+        const topEmitters = [...COUNTRIES].sort((a, b) => b.co2 - a.co2).slice(0, 6).map(c => c.code);
+        const topProjected = topEmitters
+            .map(code => visibleSorted.find(point => COUNTRIES[point.idx].code === code))
+            .filter(Boolean);
         if (topProjected.length >= 2) {
             for (let i = 0; i < topProjected.length - 1; i++) {
                 const a = topProjected[i], b = topProjected[i + 1];
-                const flowPhase = (timeMs * 0.0004 + i * 0.25) % 1;
-                const midX = (a.px + b.px) / 2;
-                const midY = (a.py + b.py) / 2 - 30 * Math.min(a.scale, b.scale);
-                ctx.beginPath();
-                ctx.moveTo(a.px, a.py);
-                ctx.quadraticCurveTo(midX, midY, b.px, b.py);
-                ctx.strokeStyle = `rgba(255,255,255,${0.04 + 0.03 * Math.sin(timeMs * 0.002 + i)})`;
-                ctx.lineWidth = 0.6;
-                ctx.setLineDash([4, 8]);
-                ctx.lineDashOffset = -timeMs * 0.03;
-                ctx.stroke();
-                ctx.setLineDash([]);
+                drawFlightRoute(ctx, a, b, COUNTRIES[a.idx], COUNTRIES[b.idx], i, timeMs, {
+                    traffic: i < 2 ? 2 : 1,
+                });
+            }
+        }
 
-                const dotT = flowPhase;
-                const dotX = (1 - dotT) * (1 - dotT) * a.px + 2 * (1 - dotT) * dotT * midX + dotT * dotT * b.px;
-                const dotY = (1 - dotT) * (1 - dotT) * a.py + 2 * (1 - dotT) * dotT * midY + dotT * dotT * b.py;
-                ctx.fillStyle = `rgba(255,255,255,${0.2 + 0.15 * (1 - dotT)})`;
-                ctx.beginPath();
-                ctx.arc(dotX, dotY, 1.8, 0, Math.PI * 2);
-                ctx.fill();
+        if (selected) {
+            const selectedPoint = visibleSorted.find(point => COUNTRIES[point.idx].code === selected.code);
+            if (selectedPoint) {
+                const selectedTargets = [...visibleSorted]
+                    .filter(point => COUNTRIES[point.idx].code !== selected.code)
+                    .sort((left, right) => {
+                        const leftCountry = COUNTRIES[left.idx];
+                        const rightCountry = COUNTRIES[right.idx];
+                        const leftScore = leftCountry.co2 * 0.85 + leftCountry.energy * 0.25;
+                        const rightScore = rightCountry.co2 * 0.85 + rightCountry.energy * 0.25;
+                        return rightScore - leftScore;
+                    })
+                    .slice(0, 4);
+
+                selectedTargets.forEach((targetPoint, index) => {
+                    drawFlightRoute(
+                        ctx,
+                        selectedPoint,
+                        targetPoint,
+                        selected,
+                        COUNTRIES[targetPoint.idx],
+                        topProjected.length + index + 1,
+                        timeMs,
+                        {
+                            emphasized: true,
+                            traffic: 3,
+                        }
+                    );
+                });
             }
         }
 
@@ -478,7 +644,7 @@ const GlobalEmissions = () => {
         }
         if (found >= 0) {
             const c = COUNTRIES[found], ren = (c.hydro + c.wind + c.solar + (c.other || 0)).toFixed(0);
-            setTooltip({ x: mx + 14, y: my - 10, name: `${c.flag} ${c.name}`, co2: c.co2, ren, intensity: getEmissionIntensity(c).toFixed(1) });
+            setTooltip({ x: mx + 14, y: my - 10, name: `${getCountryFlag(c)} ${c.name}`, co2: c.co2, ren, intensity: getEmissionIntensity(c).toFixed(1) });
         } else setTooltip(null);
     }, []);
     const handleUp = useCallback(() => {
@@ -514,14 +680,13 @@ const GlobalEmissions = () => {
             <div className="ge-map-section" style={{ minHeight: '560px' }}>
                 <div className="ge-map-title-overlay">
                     <h3>Global Carbon Field</h3>
-                    <p>Globe with geometric wireframes of 
-                        each national energy footprint.</p>
+                    <p>Globe with geometric wireframes, live CO₂ plumes and moving air corridors between major emitters.</p>
                 </div>
                 <div className="ge-map-topbar">
                     <div className="ge-map-chip">
                         <span className="ge-chip-label">Largest plume</span>
                         <strong>{topEmitter.name}</strong>
-                        <span>{topEmitter.co2.toLocaleString()} Mt CO2</span>
+                        <span>{topEmitter.co2.toLocaleString()} Mt CO₂</span>
                     </div>
                     <div className="ge-map-chip">
                         <span className="ge-chip-label">Cleanest mix</span>
@@ -560,7 +725,7 @@ const GlobalEmissions = () => {
                         <p className="ge-rail-title">Largest Emitters</p>
                         {topEmitterList.map(country => (
                             <button key={country.code} className={`ge-rail-item ${selected?.code === country.code ? 'active' : ''}`} onClick={() => setSelected(country)}>
-                                <span>{country.flag} {country.name}</span>
+                        <span>{getCountryFlag(country)} {country.name}</span>
                                 <span>{country.co2.toLocaleString()} Mt</span>
                             </button>
                         ))}
@@ -569,7 +734,7 @@ const GlobalEmissions = () => {
                         <p className="ge-rail-title">Lowest Carbon Intensity</p>
                         {cleanLeaders.map(country => (
                             <button key={country.code} className={`ge-rail-item ge-clean ${selected?.code === country.code ? 'active' : ''}`} onClick={() => setSelected(country)}>
-                                <span>{country.flag} {country.name}</span>
+                                <span>{getCountryFlag(country)} {country.name}</span>
                                 <span>{getEmissionIntensity(country).toFixed(1)}</span>
                             </button>
                         ))}
@@ -579,7 +744,8 @@ const GlobalEmissions = () => {
                     <span className="ge-map-hint">Drag to rotate, use the wheel or controls to zoom, and click any country to inspect its energy profile.</span>
                     <div className="ge-map-mini-legend">
                         <span className="ge-legend-pill"><span className="ge-legend-dot ge-legend-node" />Country node</span>
-                        <span className="ge-legend-pill"><span className="ge-legend-dot ge-legend-plume" />CO2 plume</span>
+                        <span className="ge-legend-pill"><span className="ge-legend-dot ge-legend-plume" />CO₂ plume</span>
+                        <span className="ge-legend-pill"><span className="ge-legend-dot ge-legend-flight" />Flight route</span>
                         <span className="ge-legend-pill"><span className="ge-legend-dot ge-legend-ring" />Geometric orbit</span>
                     </div>
                 </div>
@@ -592,7 +758,7 @@ const GlobalEmissions = () => {
                 {selected && (
                     <div className="ge-detail-overlay">
                         <div className="ge-detail-header">
-                            <div><span className="ge-detail-flag">{selected.flag}</span><p className="ge-detail-country">{selected.name}</p></div>
+                            <div><span className="ge-detail-flag">{getCountryFlag(selected)}</span><p className="ge-detail-country">{selected.name}</p></div>
                             <button className="ge-detail-close" onClick={() => setSelected(null)}><X size={14} /></button>
                         </div>
                         <hr className="ge-detail-divider" />

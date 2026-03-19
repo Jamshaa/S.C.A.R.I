@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
+from src.utils.config import Config
 from src.utils.greendc import GreenDCCalculator
 
 
@@ -160,7 +161,10 @@ def build_region_catalog() -> List[Dict[str, Any]]:
                 "price_per_kwh": region_data["price"],
                 "carbon_intensity_kg_kwh": region_data["intensity"],
                 "currency_code": currency_code,
-                "currency_symbol": CURRENCY_SYMBOLS.get(currency_code, currency_code),
+                "currency_symbol": {"EUR": "€", "GBP": "£", "USD": "$"}.get(
+                    currency_code,
+                    CURRENCY_SYMBOLS.get(currency_code, currency_code),
+                ),
             }
         )
     return regions
@@ -305,6 +309,30 @@ def build_sustainability(metrics: Dict[str, Any], calculator: GreenDCCalculator)
         }
     )
     return sustainability
+
+
+def build_evaluation_context(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    baseline = metrics.get("baseline", {})
+    model_name, primary = extract_primary_model(metrics)
+    metadata = metrics.get("metadata", {})
+    raw_config = str(metadata.get("config", "configs/default.yaml"))
+    config_label = raw_config
+    cooling_mode = infer_model_mode(model_name) or "AIR"
+    try:
+        resolved_config = resolve_config_path(raw_config)
+        config_label = str(resolved_config.relative_to(BASE_DIR)).replace("\\", "/")
+        cooling_mode = Config.from_yaml(resolved_config).cooling.mode.upper()
+    except Exception:
+        pass
+
+    return {
+        "model": model_name,
+        "config": config_label,
+        "cooling_mode": cooling_mode,
+        "baseline": str(metadata.get("baseline_controller", baseline.get("controller_name", "BASELINE"))),
+        "seed": metadata.get("seed"),
+        "steps": int(primary.get("total_steps", baseline.get("total_steps", 0) or 0)),
+    }
 
 
 class JSONFormatter(logging.Formatter):
@@ -689,6 +717,11 @@ async def get_historical_result(eval_id: str) -> Dict[str, Any]:
         "id": eval_id,
         "metrics": metrics,
         "images": images,
+        "context": build_evaluation_context(metrics),
+        "downloads": {
+            "metrics_json": f"/outputs/eval/{eval_id}/metrics.json",
+            "charts": images,
+        },
         "sustainability": build_sustainability(metrics, greendc),
     }
 
@@ -839,6 +872,11 @@ async def get_results() -> Dict[str, Any]:
     return {
         "metrics": metrics,
         "images": images,
+        "context": build_evaluation_context(metrics),
+        "downloads": {
+            "metrics_json": f"/outputs/eval/{latest_dir.name}/metrics.json",
+            "charts": images,
+        },
         "sustainability": build_sustainability(metrics, greendc),
     }
 

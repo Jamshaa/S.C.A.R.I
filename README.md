@@ -79,7 +79,7 @@ Train with the default config:
 python -m src.train --config configs/default.yaml --cooling-mode AIR --output-name scari_target20
 ```
 
-Other profiles are available in `configs/`, including `optimized.yaml`, `max_savings_safe.yaml`, `liquid.yaml`, and `hybrid.yaml`.
+Other profiles are available in `configs/`, including `liquid.yaml` and `hybrid.yaml`.
 
 ## Evaluation
 

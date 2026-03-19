@@ -67,6 +67,74 @@ const inferEvaluationConfig = (modelName = '') => {
   }
   return 'configs/default.yaml';
 };
+const formatConfigLabel = (config = '') => config.replace(/\\/g, '/').replace(/^.*?(configs\/)/, '$1');
+const formatCoolingMode = (mode = '') => {
+  const normalized = String(mode || '').toUpperCase();
+  if (normalized === 'LIQUID') return 'Liquid';
+  if (normalized === 'HYBRID') return 'Hybrid';
+  return 'Air';
+};
+const getScenarioLabel = (context = {}) => formatConfigLabel(context.config || 'configs/default.yaml');
+const getOverrideDependence = (rate) => {
+  if (rate < 5) return { label: 'Low', tone: 'var(--success)' };
+  if (rate < 15) return { label: 'Moderate', tone: 'var(--warning)' };
+  return { label: 'High', tone: 'var(--danger)' };
+};
+const buildEvaluationStory = (baseline = {}, candidate = {}, context = {}) => {
+  const { totalSavingsPct } = getComparisonStats(baseline, candidate);
+  const safetyViolations = Number(candidate.safety_violations || 0);
+  const overrideRate = Number(candidate.safety_override_rate_percent || 0);
+  const overrideTone = getOverrideDependence(overrideRate);
+  const safe = safetyViolations === 0;
+  if (totalSavingsPct > 0 && safe) {
+    return {
+      headline: 'SCARI beat the baseline safely',
+      kicker: `${totalSavingsPct.toFixed(2)}% lower total facility power in ${getScenarioLabel(context)}.`,
+      tone: 'var(--success)',
+      overrideTone,
+    };
+  }
+  if (totalSavingsPct > 0 && !safe) {
+    return {
+      headline: 'SCARI saved energy but lost thermal safety',
+      kicker: `${totalSavingsPct.toFixed(2)}% savings, but ${safetyViolations} safety violations were recorded.`,
+      tone: 'var(--warning)',
+      overrideTone,
+    };
+  }
+  if (safe) {
+    return {
+      headline: 'SCARI stayed safe but did not beat the baseline',
+      kicker: `No thermal violations, but savings versus baseline were ${totalSavingsPct.toFixed(2)}%.`,
+      tone: 'var(--text)',
+      overrideTone,
+    };
+  }
+  return {
+    headline: 'SCARI did not close the run successfully',
+    kicker: `The evaluation under ${getScenarioLabel(context)} requires manual review.`,
+    tone: 'var(--danger)',
+    overrideTone,
+  };
+};
+const downloadFileFromApi = async (url, filename, addToast) => {
+  try {
+    const res = await fetch(`${API_BASE}${url}`);
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
+    addToast(`Downloaded ${filename}`, 'success');
+  } catch (error) {
+    addToast(`Download failed: ${error.message}`, 'error');
+  }
+};
 const StepperInput = ({ value, onChange, step = 1000, min = 0, max = Infinity, presets = [] }) => {
   const intervalRef = useRef(null);
   const timeoutRef = useRef(null);
@@ -204,7 +272,7 @@ const App = () => {
   const [theme, setTheme] = useState(() =>
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   );
-  const [mainTab, setMainTab] = useState('analytics');
+  const [mainTab, setMainTab] = useState('workflow');
   const isTrainingRef = useRef(isTraining);
   const isEvaluatingRef = useRef(isEvaluating);
   useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
@@ -285,7 +353,7 @@ const App = () => {
       if (!isMounted) return;
       try {
         await fetchStatus();
-        errorCount = 0; 
+        errorCount = 0;
       } catch (error) {
         errorCount++;
         console.debug('Polling iteration failed', error);
@@ -364,7 +432,7 @@ const App = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'MULTI', 
+          model: 'MULTI',
           models: [air, liquid, hybrid],
           steps: evalSteps,
           name: evalName
@@ -800,19 +868,38 @@ const App = () => {
           }}>
             <div>
               <h1 style={{ fontSize: '26px', letterSpacing: '-0.04em', marginBottom: '3px' }}>
-                {mainTab === 'analytics' ? 'Telemetry' : mainTab === 'calculator' ? 'Sustainability' : 'Global Emissions'}
+                {mainTab === 'workflow'
+                  ? 'Workflow'
+                  : mainTab === 'analytics'
+                    ? 'Evaluation'
+                    : mainTab === 'calculator'
+                      ? 'Sustainability'
+                      : 'Global Emissions'}
               </h1>
               <p style={{ color: 'var(--muted)', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                {mainTab === 'analytics' ? 'Model evaluation & performance' : mainTab === 'calculator' ? 'Resource efficiency & ROI analysis' : 'Worldwide energy & CO₂ intelligence'}
+                {mainTab === 'workflow'
+                  ? 'Choose model, run evaluation, read results, project impact'
+                  : mainTab === 'analytics'
+                    ? 'Model evaluation and performance'
+                    : mainTab === 'calculator'
+                      ? 'Resource efficiency and ROI analysis'
+                        : 'Worldwide energy and CO₂ intelligence'}
               </p>
             </div>
             <div className="tab-bar" style={{ marginBottom: 0 }}>
+              <button
+                className={`tab-btn ${mainTab === 'workflow' ? 'active' : ''}`}
+                onClick={() => setMainTab('workflow')}
+              >
+                <ChevronRight size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
+                Workflow
+              </button>
               <button
                 className={`tab-btn ${mainTab === 'analytics' ? 'active' : ''}`}
                 onClick={() => setMainTab('analytics')}
               >
                 <BarChart3 size={12} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '5px' }} />
-                Analytics
+                Evaluation
               </button>
               <button
                 className={`tab-btn ${mainTab === 'global' ? 'active' : ''}`}
@@ -830,6 +917,105 @@ const App = () => {
               </button>
             </div>
           </header>
+          {mainTab === 'workflow' && (
+            <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card workflow-hero">
+                <div>
+                  <div className="card-title" style={{ marginBottom: '10px' }}>
+                    <Activity size={12} />
+                    Main TFG Flow
+                  </div>
+                  <h2 style={{ marginBottom: '8px' }}>From checkpoint selection to defendable results</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '760px' }}>
+                    Use this flow to pick a PPO model, launch a single evaluation,
+                    inspect the technical outcome and finally translate it into sustainability impact.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={() => setMainTab('analytics')} disabled={!selectedModel && models.length === 0}>
+                    <BarChart3 size={13} />
+                    Open Evaluation
+                  </button>
+                </div>
+              </div>
+
+              <div className="workflow-grid">
+                <div className="card workflow-step-card">
+                  <div className="workflow-step-index">1</div>
+                  <div>
+                    <div className="text-label">Choose Model</div>
+                    <h3 style={{ marginTop: '8px' }}>{selectedModel || 'No model selected yet'}</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
+                      {selectedModel
+                        ? `Current evaluation config: ${inferEvaluationConfig(selectedModel)}`
+                        : 'Pick a checkpoint from the registry on the left before launching validation.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="card workflow-step-card">
+                  <div className="workflow-step-index">2</div>
+                  <div>
+                    <div className="text-label">Launch Validation</div>
+                    <h3 style={{ marginTop: '8px' }}>Single evaluation</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
+                      Run one controlled comparison against the baseline and inspect power, thermal safety and safety-override dependence.
+                    </p>
+                  </div>
+                </div>
+                <div className="card workflow-step-card">
+                  <div className="workflow-step-index">3</div>
+                  <div>
+                    <div className="text-label">Read Outcome</div>
+                    <h3 style={{ marginTop: '8px' }}>{results?.context?.model || 'Awaiting evaluation output'}</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
+                      {results?.context
+                        ? `${getScenarioLabel(results.context)} · ${formatCoolingMode(results.context.cooling_mode)} · ${results.context.steps} steps`
+                        : 'The evaluation view will show who won, if the run was safe and how much SCARI relied on safety override.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="card workflow-step-card">
+                  <div className="workflow-step-index">4</div>
+                  <div>
+                    <div className="text-label">Project Impact</div>
+                    <h3 style={{ marginTop: '8px' }}>Translate to energy, CO2 and ROI</h3>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
+                      Push the latest evaluation into the calculator to move from technical telemetry to annual savings and sustainability narrative.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="workflow-actions-grid">
+                <div className="card">
+                  <div className="card-title">
+                    <BarChart3 size={12} />
+                    Quick Evaluation
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                    Compare the selected checkpoint against its baseline and inspect metrics, charts and decision trace.
+                  </p>
+                  <button className="btn btn-primary" onClick={handleEvaluate} disabled={!selectedModel || isEvaluating}>
+                    {isEvaluating ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+                    Run Evaluation
+                  </button>
+                </div>
+                <div className="card">
+                  <div className="card-title">
+                    <Leaf size={12} />
+                    Sustainability Impact
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                    Import the latest measured PUE and use it to generate annual savings, carbon and ROI narratives.
+                  </p>
+                  <button className="btn btn-outline" onClick={() => setMainTab('calculator')}>
+                    <Leaf size={13} />
+                    Open Calculator
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
           {mainTab === 'analytics' && (
             <>
               {(isTraining || isEvaluating) && (
@@ -907,9 +1093,23 @@ const App = () => {
                 const {
                   totalSavingsPct
                 } = getComparisonStats(b, s);
+                const context = results.context || {
+                  model: bestModelName,
+                  config: inferEvaluationConfig(bestModelName),
+                  cooling_mode: inferEvaluationConfig(bestModelName).includes('liquid')
+                    ? 'LIQUID'
+                    : inferEvaluationConfig(bestModelName).includes('hybrid')
+                      ? 'HYBRID'
+                      : 'AIR',
+                  baseline: results.metrics?.metadata?.baseline_controller || b.controller_name || 'BASELINE',
+                  seed: results.metrics?.metadata?.seed ?? 'N/A',
+                  steps: s.total_steps || b.total_steps || evalSteps,
+                };
                 const safetyOverrideRate = Number(s.safety_override_rate_percent || 0);
                 const safetyOverrideRateBaseline = Number(b.safety_override_rate_percent || 0);
                 const safetyOverrideAvgActive = Number(s.safety_override_avg_fraction_active || 0) * 100;
+                const story = buildEvaluationStory(b, s, context);
+                const overrideDependence = getOverrideDependence(safetyOverrideRate);
                 const metrics = [
                   {
                     label: 'Total Facility Reduction',
@@ -948,27 +1148,80 @@ const App = () => {
                   }
                 ];
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '32px' }}>
-                    {metrics.map((m, i) => (
-                      <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
-                          <m.icon size={14} color={m.color} />
-                          <span className="text-label">{m.label}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '32px' }}>
+                    <div className="card story-banner animate-fade-in">
+                      <div>
+                        <div className="card-title" style={{ marginBottom: '10px' }}>
+                          <CheckCircle2 size={12} />
+                          Result Story
                         </div>
-                        <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
-                          {m.value}
-                        </div>
-                        {m.desc ? (
-                          <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
-                        ) : null}
+                        <h2 style={{ fontSize: '20px', marginBottom: '6px', color: story.tone }}>{story.headline}</h2>
+                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{story.kicker}</p>
                       </div>
-                    ))}
-                    <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', background: 'rgba(var(--accent-rgb), 0.03)', border: '1px dashed var(--border)' }}>
-                      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                        <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
-                        <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
-                            <strong>Note on Projections:</strong> Savings are extrapolated from the latest simulation snapshot.
-                        </p>
+                      <div className="story-badges">
+                        <span className="badge badge-accent">{getScenarioLabel(context)}</span>
+                        <span className="badge">{formatCoolingMode(context.cooling_mode)} cooling</span>
+                        <span className={`badge ${s.safety_violations === 0 ? 'badge-success' : 'badge-warning'}`}>
+                          {s.safety_violations === 0 ? 'Thermally safe' : 'Safety reviewed'}
+                        </span>
+                        <span className="badge" style={{ color: overrideDependence.tone, borderColor: overrideDependence.tone }}>
+                          Override {overrideDependence.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="evaluation-context-grid">
+                      {[
+                        ['Model', context.model],
+                        ['Config', formatConfigLabel(context.config)],
+                        ['Mode', formatCoolingMode(context.cooling_mode)],
+                        ['Baseline', context.baseline],
+                        ['Seed', context.seed ?? 'N/A'],
+                        ['Steps', Number(context.steps || 0).toLocaleString()],
+                      ].map(([label, value]) => (
+                        <div key={label} className="metric-card">
+                          <div className="text-label">{label}</div>
+                          <div className="metric-value" style={{ fontSize: '18px', marginTop: '6px' }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="evaluation-downloads">
+                      <button
+                        className="btn btn-outline btn-sm"
+                        onClick={() => downloadFileFromApi(results.downloads.metrics_json, `${context.model || 'scari'}_metrics.json`, addToast)}
+                      >
+                        <Download size={12} />
+                        Metrics JSON
+                      </button>
+                      <button className="btn btn-outline btn-sm" onClick={downloadAllCharts}>
+                        <Image size={12} />
+                        All Charts
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                      {metrics.map((m, i) => (
+                        <div key={i} className="metric-card animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}>
+                            <m.icon size={14} color={m.color} />
+                            <span className="text-label">{m.label}</span>
+                          </div>
+                          <div className="metric-value" style={{ fontSize: '24px', color: m.color, marginBottom: '4px' }}>
+                            {m.value}
+                          </div>
+                          {m.desc ? (
+                            <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.3 }}>{m.desc}</p>
+                          ) : null}
+                        </div>
+                      ))}
+                      <div className="metric-card animate-fade-in" style={{ gridColumn: '1 / -1', border: '1px dashed var(--border)' }}>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                          <AlertCircle size={14} style={{ marginTop: '2px', color: 'var(--muted)', flexShrink: 0 }} />
+                          <p style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', margin: 0 }}>
+                            <strong>Reading tip:</strong> judge the run by savings, safety and safety-override dependence together, not by a single KPI in isolation.
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>

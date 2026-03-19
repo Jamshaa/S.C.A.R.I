@@ -707,6 +707,46 @@ select {
   flex: 1;
   min-height: 0;
 }
+.workflow-hero,
+.story-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.workflow-grid,
+.workflow-actions-grid,
+.evaluation-context-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.workflow-step-card {
+  display: flex;
+  gap: 14px;
+  min-height: 150px;
+}
+.workflow-step-index {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--border-strong);
+  color: var(--text-inverse);
+  font-weight: 800;
+  font-size: 12px;
+}
+.story-badges,
+.evaluation-downloads {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }

@@ -200,6 +200,35 @@ def test_build_sustainability_uses_measured_pue_and_overhead_metrics():
     assert sustainability["pue_overhead_reduction_percent"] == 60.0
 
 
+def test_build_evaluation_context_exposes_model_config_mode_baseline_seed_and_steps():
+    metrics = {
+        "metadata": {
+            "config": "configs/liquid.yaml",
+            "seed": 42,
+            "baseline_controller": "TRADITIONAL_ENTERPRISE",
+        },
+        "baseline": {"average_pue": 1.5},
+        "models": {
+            "THERMAL_SAFE": {
+                "average_pue": 1.2,
+                "total_steps": 5000,
+                "total_power_consumption": 800.0,
+            }
+        },
+    }
+
+    context = api_app.build_evaluation_context(metrics)
+
+    assert context == {
+        "model": "THERMAL_SAFE",
+        "config": "configs/liquid.yaml",
+        "cooling_mode": "LIQUID",
+        "baseline": "TRADITIONAL_ENTERPRISE",
+        "seed": 42,
+        "steps": 5000,
+    }
+
+
 def test_require_admin_access_allows_local_without_api_key(monkeypatch):
     monkeypatch.delenv("SCARI_API_KEY", raising=False)
     asyncio.run(api_app.require_admin_access(make_request("127.0.0.1"), None))
