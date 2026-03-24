@@ -1,243 +1,190 @@
-# src/envs/datacenter_env.py
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from typing import Tuple, Dict, Any, List, Optional
-from pathlib import Path
 from src.utils.config import Config, DEFAULT_CONFIG
 from src.models.rack import Rack
 import logging
-
 logger = logging.getLogger(__name__)
 
 class DataCenterEnv(gym.Env):
-    """Gymnasium environment for datacenter thermal management RL."""
-    
-    metadata = {'render_modes': []}
-    
-    def __init__(self, config: Optional[Config] = None):
-        """
-        Initialize the environment.
-        
-        Args:
-            config: Configuration object.
-        """
+    metadata = {'render_modes': ['human']}
+
+    def __init__(self, config: Optional[Config]=None):
         if config is None:
             config = DEFAULT_CONFIG
-        
         self.config = config
-        self.num_servers = (
-            config.environment.num_racks * 
-            config.environment.servers_per_rack
-        )
-        
+        self.num_servers = config.environment.num_racks * config.environment.servers_per_rack
         self.rack = Rack(0, self.num_servers, config)
         self.current_loads = np.zeros(self.num_servers)
+        self.current_ambient_temp = float(config.physics.ambient_temp)
         self.step_count = 0
         self.episode_count = 0
-        
-        # SCARI: Normalized observation space [0, 1]
-        # [Normalized Temps, Loads, Health, Temp Trends]
-        self.observation_space = spaces.Box(
-            low=0.0, high=1.0,
-            shape=(4 * self.num_servers,),
-            dtype=np.float32
-        )
-        
-        self.prev_temps = None # For calculating trends
-        
-        # Action: [Cooling actions per server...]
-        self.action_space = spaces.Box(
-            low=0.0, high=1.0,
-            shape=(self.num_servers,),
-            dtype=np.float32
-        )
-        
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(4 * self.num_servers,), dtype=np.float32)
+        self.prev_temps = None
+        self.prev_raw_temps = None
+        self.last_action = None
+        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(self.num_servers,), dtype=np.float32)
         self.episode_rewards: List[float] = []
         self.episode_temps: List[float] = []
         self.episode_powers: List[float] = []
-        
-        logger.info(f"DataCenterEnv initialized with {self.num_servers} servers (Normalized v2)")
-    
-    def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Reset the environment."""
+        logger.info(f'DataCenterEnv: {self.num_servers} servers, cooling={config.cooling.mode}, reward={config.reward.profile}')
+
+    def reset(self, seed: Optional[int]=None, options: Optional[Dict[str, Any]]=None) -> Tuple[np.ndarray, Dict[str, Any]]:
         super().reset(seed=seed)
-        
         self.rack.reset()
         self.prev_temps = self.rack.get_temperatures()
-        
-        # Ensure we use the seed provided by gymnasium
-        self.current_loads = self.np_random.uniform(
-            self.config.environment.min_initial_load,
-            self.config.environment.max_initial_load,
-            self.num_servers
-        ).astype(np.float32)
-        
+        self.prev_raw_temps = self.prev_temps.copy()
+        self.last_action = None
+        self.current_loads = self.np_random.uniform(self.config.environment.min_initial_load, self.config.environment.max_initial_load, self.num_servers).astype(np.float32)
         self.step_count = 0
+        self.current_ambient_temp = self._get_effective_ambient_temp()
         self.episode_count += 1
         self.episode_rewards = []
         self.episode_temps = []
         self.episode_powers = []
-        
-        return self._get_obs(), {}
-    
+        return (self._get_obs(), {})
+
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
-        """Step through environment physics."""
         action = np.clip(action, 0.0, 1.0).astype(np.float32)
-        
-        # Update workload loads
         load_std = self.config.environment.load_std
-        # Random walk for loads
         load_noise = self.np_random.normal(0, load_std, self.num_servers)
-        self.current_loads = np.clip(
-            self.current_loads + load_noise,
-            0.0, 1.0
-        ).astype(np.float32)
-        
-        # Update server physics
-        stats = self.rack.update(self.current_loads, action)
-        
-        # Calculate reward
-        reward = self._calculate_reward(stats, action)
-        
-        # Termination conditions
+        max_load_delta = self.config.environment.max_load_change_per_step
+        load_noise = np.clip(load_noise, -max_load_delta, max_load_delta)
+        self.current_loads = np.clip(self.current_loads + load_noise, 0.0, 1.0).astype(np.float32)
+        self.current_ambient_temp = self._get_effective_ambient_temp()
+        effective_action, safety_meta = self._apply_safety_override(action)
+        stats = self.rack.update(self.current_loads, effective_action, ambient_temp=self.current_ambient_temp)
+        reward = self._calculate_reward(stats, effective_action)
         temps = self.rack.get_temperatures()
         max_temp = np.max(temps)
-        
-        terminated = bool(max_temp >= self.config.physics.max_temp)
+        hard_limit = self._get_hard_limit()
+        hard_limit_violation = bool(max_temp >= hard_limit)
+        facility_power = self.rack.get_facility_power()
+        terminated = bool(max_temp >= self.config.physics.max_temp or (self.config.environment.terminate_on_hard_limit and hard_limit_violation))
         truncated = bool(self.step_count >= self.config.environment.max_steps)
-        
         self.episode_rewards.append(reward)
         self.episode_temps.append(max_temp)
         self.episode_powers.append(self.rack.get_total_power())
         self.step_count += 1
-        
         info = {
-            "total_power": self.rack.get_total_power(),
-            "max_temp": float(max_temp),
-            "avg_temp": self.rack.get_avg_temperature(),
-            "avg_health": self.rack.get_avg_health(),
-            "it_power": float(sum(s['it_power'] for s in stats)),
-            "cooling_power": float(sum(s['cooling_power'] for s in stats)),
-            "stats": stats # Added for evaluate.py stability
+            'total_power': self.rack.get_total_power(),
+            'max_temp': float(max_temp),
+            'avg_temp': self.rack.get_avg_temperature(),
+            'avg_health': self.rack.get_avg_health(),
+            'it_power': float(sum((s['it_power'] for s in stats))),
+            'cooling_power': float(sum((s['cooling_power'] for s in stats))),
+            'facility_power': float(facility_power),
+            'ambient_temp': float(self.current_ambient_temp),
+            'stats': stats,
+            'hard_limit': hard_limit,
+            'hard_limit_violation': hard_limit_violation,
+            'safety_override_active': safety_meta['active'],
+            'safety_override_fraction': safety_meta['fraction'],
+            'avg_action': float(np.mean(effective_action)),
         }
-        
-        return self._get_obs(), float(reward), terminated, truncated, info
-    
+        return (self._get_obs(), float(reward), terminated, truncated, info)
+
+    def _get_hard_limit(self) -> float:
+        return float(min(self.config.reward.hard_limit, self.config.physics.max_temp))
+
+    def _get_effective_ambient_temp(self) -> float:
+        variation = max(0.0, self.config.environment.ambient_temp_variation)
+        cycle_steps = max(1, int(self.config.environment.ambient_cycle_steps))
+        if variation <= 0.0 or cycle_steps <= 1:
+            return float(self.config.physics.ambient_temp)
+        phase = 2.0 * np.pi * ((self.step_count % cycle_steps) / cycle_steps)
+        ambient = self.config.physics.ambient_temp + variation * np.sin(phase)
+        return float(np.clip(ambient, self.config.physics.min_temp, self.config.physics.max_temp))
+
+    def _apply_safety_override(self, action: np.ndarray) -> Tuple[np.ndarray, Dict[str, float]]:
+        if not self.config.environment.safety_override:
+            return action, {'active': False, 'fraction': 0.0}
+        temps = self.rack.get_temperatures()
+        prev_temps = self.prev_raw_temps if self.prev_raw_temps is not None else temps
+        temp_rise = np.clip(temps - prev_temps, 0.0, 5.0)
+        hard_limit = self._get_hard_limit()
+        activation_temp = min(self.config.environment.safety_override_temp, hard_limit - 0.5)
+        if hard_limit <= activation_temp:
+            return action, {'active': False, 'fraction': 0.0}
+        ramp = np.clip((temps - activation_temp) / (hard_limit - activation_temp + 1e-6), 0.0, 1.0)
+        lookahead = np.clip(temp_rise / 2.5, 0.0, 1.0) * self.config.environment.safety_lookahead_weight
+        load_pressure = np.clip((self.current_loads - 0.72) / 0.28, 0.0, 1.0) * self.config.environment.safety_load_weight
+        required = self.config.environment.safety_min_action + ramp * (self.config.environment.safety_max_action - self.config.environment.safety_min_action)
+        required = np.clip(required + lookahead + load_pressure, 0.0, self.config.environment.safety_max_action)
+        safe_action = np.maximum(action, required).astype(np.float32)
+        diff = np.maximum(safe_action - action, 0.0)
+        return safe_action, {'active': bool(np.any(diff > 1e-4)), 'fraction': float(np.mean(diff))}
+
     def _get_obs(self) -> np.ndarray:
-        """
-        Produce NORMALIZED observations [0, 1].
-        """
         temps = self.rack.get_temperatures()
         loads = self.current_loads
         health = np.array([s.health for s in self.rack.servers])
-        
-        # Calculate trends (Normalized change per step)
         if self.prev_temps is None:
             trends = np.zeros_like(temps)
+            temps_for_obs = temps.copy()
         else:
-            # Add Sensor Noise (Enterprise-Grade Realism)
-            # +/- 0.5°C jitter simulates real-world thermistors
-            obs_noise = self.np_random.normal(0, 0.5, self.num_servers)
+            obs_noise = self.np_random.normal(0, 0.3, self.num_servers)
             noisy_temps = temps + obs_noise
-            
-            # Scale trend so that a 1.0 degree increase per step is "high" (0.5 + 0.5)
-            # We use the previous noisy temps for trend to simulate sequential jitter
-            trends = (noisy_temps - self.prev_temps) / 10.0 
-            trends = np.clip(trends * 0.5 + 0.5, 0, 1) 
-            
-            # Use noisy temps for main observation too
+            raw_prev = self.prev_raw_temps if self.prev_raw_temps is not None else self.prev_temps
+            trends = (temps - raw_prev) / 10.0
+            trends = np.clip(trends * 0.5 + 0.5, 0, 1)
             temps_for_obs = noisy_temps
-        
-        # Normalize temperatures between min and max allowed
         t_min = self.config.physics.min_temp
         t_max = self.config.physics.max_temp
-        norm_temps = (temps_for_obs - t_min) / (t_max - t_min + 1e-6)
+        norm_temps = (temps_for_obs - t_min) / (t_max - t_min + 1e-06)
         norm_temps = np.clip(norm_temps, 0, 1)
-        
         self.prev_temps = temps_for_obs.copy()
-        
-        # Loads and Health are already roughly [0, 1]
+        self.prev_raw_temps = temps.copy()
         return np.concatenate([norm_temps, loads, health, trends]).astype(np.float32)
 
     def get_raw_observations(self) -> Dict[str, np.ndarray]:
-        """
-        Return raw, un-normalized observations for analysis or legacy controllers.
-        """
-        return {
-            'temps': self.rack.get_temperatures(),
-            'loads': self.current_loads.copy(),
-            'health': np.array([s.health for s in self.rack.servers]),
-            'power': self.rack.get_total_power()
-        }
+        return {'temps': self.rack.get_temperatures(), 'loads': self.current_loads.copy(), 'health': np.array([s.health for s in self.rack.servers]), 'power': self.rack.get_total_power(), 'ambient_temp': self.current_ambient_temp}
 
-    
     def _calculate_reward(self, stats: List[Dict[str, Any]], actions: np.ndarray) -> float:
-        """
-        Multi-profile Reward Function for SCARI.
-        Supports specialized training for different deployment scenarios.
-        """
-        it_power = sum(s['it_power'] for s in stats)
-        cooling_power = sum(s['cooling_power'] for s in stats)
-        total_power = it_power + cooling_power
-        
-        avg_temp = np.mean([s['temp'] for s in stats])
+        it_power = sum((s['it_power'] for s in stats))
+        cooling_power = sum((s['cooling_power'] for s in stats))
+        facility_power = self.rack.get_facility_power()
+        total_power = it_power + cooling_power + facility_power
         max_temp = np.max([s['temp'] for s in stats])
         avg_health = np.mean([s['health'] for s in stats])
-        pue = total_power / (it_power + 1e-6)
-        
-        # ---------------------------------------------------------
-        # Dynamic Reward Function (Uses optimized.yaml values)
-        # ---------------------------------------------------------
-        
-        # 1. PUE / Energy Reward (Scaled +/- 5.0)
-        pue_baseline = 1.25
-        pue_improvement = max(0, pue_baseline - pue)
-        pue_reward = self.config.reward.energy_coefficient * (pue_improvement * 20.0)
-        
-        # 2. Thermal Guidance System (Log-Linear)
-        # Target: stay near 46.0°C. 
-        # We use log1p to create a smooth, non-exploding cost gradient.
-        thermal_cost = 0.0
-        target_temp = 46.0
-        if max_temp > target_temp:
-            # 10.0 * log(1 + excess) gives a very stable learning signal
-            thermal_cost = 15.0 * np.log1p(max_temp - target_temp)
-            
-        # 3. Dynamic Safety Wall (Capped)
-        # This provides the "Hard Limit" without destroying the gradients.
-        safety_wall_penalty = 0.0
-        hard_limit = 63.0
-        if max_temp >= hard_limit:
-            # Fixed hit + small linear graduation, but capped.
-            safety_wall_penalty = 150.0 + (50.0 * (max_temp - hard_limit))
-            safety_wall_penalty = np.clip(safety_wall_penalty, 0, 300.0)
-        
-        # 4. IT Load Awareness (Anti-Neglect)
-        neglect_penalty = 0.0
-        it_load_mean = np.mean([s['it_power'] for s in stats]) / self.config.physics.p_max
-        if it_load_mean > 0.8 and np.mean(actions) < 0.15:
-            neglect_penalty = 10.0 # Force exploration of cooling under load
-            
-        # 5. Stability & Health (Legacy scaling)
-        action_jitter_penalty = 0.0
-        if hasattr(self, 'last_action') and self.last_action is not None:
-            action_jitter_penalty = 1.0 * np.mean(np.abs(actions - self.last_action))
-        self.last_action = actions.copy()
-        
-        health_penalty = 200.0 * (1.0 - avg_health)
-        demand_limit = self.config.physics.p_max * self.num_servers * 0.8
-        demand_penalty = np.clip(0.5 * (total_power - demand_limit) / 100.0, 0, 5.0) if total_power > demand_limit else 0.0
-        
-        # Total Reward Assembler
-        # We want PUE benefits to be slightly smaller than thermal costs 
-        # to ensure safety is always the priority.
-        reward = pue_reward - (thermal_cost + safety_wall_penalty + neglect_penalty + action_jitter_penalty + health_penalty + demand_penalty)
-        
-        # Absolute Emergency Termination
+        cfg = self.config.reward
+        cooling_ceiling = self.num_servers * max(self.config.cooling.max_fan_power, self.config.cooling.max_pump_power, 1.0)
+        facility_ceiling = self.config.cooling.facility_base_power + self.config.physics.p_max * self.num_servers * self.config.cooling.facility_power_ratio
+        max_possible_power = self.config.physics.p_max * self.num_servers + cooling_ceiling + facility_ceiling
+        power_fraction = total_power / max_possible_power
+        energy_scale = max(cfg.energy_weight, 0.1)
+        safety_scale = max(cfg.safety_weight, 0.1)
+        energy_reward = energy_scale * cfg.energy_coefficient * (1.0 - power_fraction)
+        thermal_penalty = 0.0
+        hard_limit = self._get_hard_limit()
+        warning_start = max(cfg.safe_threshold, hard_limit - cfg.warning_margin)
+        if max_temp > hard_limit:
+            excess = max_temp - hard_limit
+            thermal_penalty += cfg.hard_limit_penalty * (1.0 + excess * 2.5) ** 2
+            thermal_penalty += cfg.emergency_penalty
+        elif max_temp > warning_start:
+            proximity = (max_temp - warning_start) / max(hard_limit - warning_start, 1e-06)
+            thermal_penalty += cfg.preemptive_penalty_coefficient * proximity ** 2 * (1.0 + 4.0 * proximity)
+        elif max_temp > cfg.safe_threshold:
+            excess = max_temp - cfg.safe_threshold
+            thermal_penalty += cfg.thermal_penalty_coefficient * excess ** 2.0
+        if max_temp > cfg.critical_limit:
+            thermal_penalty += cfg.emergency_penalty * max(0.0, max_temp - cfg.critical_limit + 1.0)
+        thermal_penalty *= safety_scale
+        if max_temp >= hard_limit and self.config.environment.terminate_on_hard_limit:
+            return float(-(cfg.hard_limit_penalty * safety_scale + thermal_penalty))
         if max_temp >= self.config.physics.max_temp:
-            reward -= 1000.0
-            
+            return float(-10000.0)
+        jitter_penalty = 0.0
+        if self.last_action is not None:
+            smooth = np.mean(np.abs(actions - self.last_action))
+            jitter_penalty = cfg.stability_weight * smooth * 5.0
+        self.last_action = actions.copy()
+        health_penalty = 0.0
+        if avg_health < 0.9:
+            health_penalty = safety_scale * 8.0 * (1.0 - avg_health)
+        reward = energy_reward - thermal_penalty - jitter_penalty - health_penalty
         return float(reward)
 
     def render(self, mode='human'):

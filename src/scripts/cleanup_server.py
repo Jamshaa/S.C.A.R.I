@@ -1,35 +1,33 @@
-import os
-import subprocess
-import signal
-import time
+import psutil
 
 def kill_port_8000():
-    print("🧹 Cleaning up Port 8000...")
+    print('🧹 Cleaning up Port 8000...')
     try:
-        # Find PIDs
-        output = subprocess.check_output('netstat -ano | findstr :8000', shell=True).decode()
-        pids = set()
-        for line in output.strip().split('\n'):
-            parts = line.split()
-            if len(parts) >= 5:
-                pids.add(parts[-1])
-        
-        for pid in pids:
-            if pid == '0': continue
-            print(f"   - Killing PID {pid}")
+        killed = False
+        for proc in psutil.process_iter(['pid', 'name']):
             try:
-                subprocess.run(f'taskkill /F /PID {pid} /T', shell=True, check=False)
-            except:
-                pass
-        
-        print("✅ Port 8000 should be clear now.")
-        return True
-    except subprocess.CalledProcessError:
-        print("ℹ️ No processes found on Port 8000.")
+                proc_name = (proc.info['name'] or '').lower()
+                if 'python' not in proc_name and 'uvicorn' not in proc_name:
+                    continue
+                connections = proc.net_connections(kind='inet')
+                for conn in connections:
+                    if getattr(conn.laddr, 'port', None) == 8000:
+                        print(f"   - Stopping process {proc.info['name']} (PID {proc.info['pid']})")
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                        killed = True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        if killed:
+            print('✅ Port 8000 processes terminated.')
+        else:
+            print('ℹ️ No processes found on Port 8000.')
         return True
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f'❌ Error during cleanup: {e}')
         return False
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     kill_port_8000()
