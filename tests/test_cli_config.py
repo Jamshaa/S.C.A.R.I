@@ -41,6 +41,22 @@ def test_apply_training_overrides_can_override_profile_label():
     assert updated.reward.profile == "EXPERIMENT_A"
 
 
+def test_resolve_training_profile_uses_mode_specific_yaml_when_default_requested():
+    config_path = train_module.resolve_training_profile("configs/default.yaml", "LIQUID")
+    assert config_path.name == "liquid.yaml"
+
+
+def test_apply_training_overrides_rejects_mismatched_explicit_profile():
+    cfg = Config.from_yaml("configs/liquid.yaml")
+    args = SimpleNamespace(timesteps=None, profile=None, cooling_mode="AIR")
+    try:
+        train_module.apply_training_overrides(cfg, args)
+    except ValueError as exc:
+        assert "does not match requested mode AIR" in str(exc)
+    else:
+        raise AssertionError("Expected apply_training_overrides to reject mismatched cooling mode")
+
+
 def test_default_profile_loads_evaluation_baseline_settings():
     cfg = Config.from_yaml("configs/default.yaml")
     assert cfg.evaluation.baseline_profile == "TRADITIONAL_ENTERPRISE"

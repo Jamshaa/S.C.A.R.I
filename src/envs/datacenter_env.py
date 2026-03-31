@@ -32,7 +32,7 @@ class DataCenterEnv(gym.Env):
 
     def reset(self, seed: Optional[int]=None, options: Optional[Dict[str, Any]]=None) -> Tuple[np.ndarray, Dict[str, Any]]:
         super().reset(seed=seed)
-        self.rack.reset()
+        self.rack.reset(rng=self.np_random)
         self.prev_temps = self.rack.get_temperatures()
         self.prev_raw_temps = self.prev_temps.copy()
         self.last_action = None

@@ -22,15 +22,15 @@ class Server:
         cpu_load = np.clip(cpu_load, 0.0, 1.0)
         cooling_action = np.clip(cooling_action, 0.0, 1.0)
         u = cpu_load
-        dynamic_factor = 0.3 + 0.7 * u ** 1.8 if u > 0 else 0.3
         p_idle = self.config.physics.p_idle
         p_max = self.config.physics.p_max
-        it_dynamic_power = p_max * dynamic_factor
+        base_it_power = p_idle + (p_max - p_idle) * u ** 1.8
         t_ref = 45.0
         k_leak = 0.025
-        base_leakage = p_max * 0.04
-        leakage_power = base_leakage * np.exp(k_leak * (self.temperature - t_ref))
-        self.power_draw = it_dynamic_power + leakage_power
+        thermal_excess = max(0.0, self.temperature - t_ref)
+        leakage_ratio = 0.06 * (np.exp(k_leak * thermal_excess) - 1.0)
+        leakage_power = base_it_power * leakage_ratio
+        self.power_draw = min(p_max * 1.35, base_it_power + leakage_power)
         heat_generated = self.power_draw
         base_ambient = self.config.physics.ambient_temp if ambient_temp is None else ambient_temp
         effective_ambient = base_ambient + inlet_temp_offset
@@ -50,8 +50,9 @@ class Server:
         self.power_history.append(self.power_draw + cooling_cost)
         return {'temp': self.temperature, 'it_power': self.power_draw, 'cooling_power': cooling_cost, 'heat_generated': heat_generated, 'heat_removed': heat_removed, 'health': self.health, 'leakage_power': leakage_power}
 
-    def reset(self) -> None:
-        self.temperature = np.random.uniform(35.0, 45.0)
+    def reset(self, rng: Any | None=None) -> None:
+        generator = rng if rng is not None else np.random.default_rng()
+        self.temperature = float(generator.uniform(35.0, 45.0))
         self.cpu_load = 0.0
         self.power_draw = self.config.physics.p_idle
         self.health = 1.0

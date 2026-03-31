@@ -1,358 +1,58 @@
 import json
-import logging
-import os
-import re
-import secrets
 import shutil
-import subprocess
-import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, field_validator
 
-from src.utils.config import Config
-from src.utils.greendc import GreenDCCalculator
+from src.api.common import (
+    BASE_DIR,
+    CONFIGS_DIR,
+    build_region_catalog,
+    choose_evaluation_config,
+    create_api_logger,
+    get_api_key,
+    infer_model_mode,
+    is_local_client,
+    load_cors_origins,
+    normalize_model_filename,
+    normalize_output_name,
+    parse_bool,
+    require_admin_access,
+    resolve_config_path,
+)
+from src.api.metrics import (
+    build_evaluation_context,
+    build_history_summary,
+    build_sustainability,
+    calculate_efficiency_summary,
+    extract_primary_model,
+)
+from src.api.schemas import DataCenterParams, EvaluationRequest, ROIParams, RenameRequest, TrainingParams
+from src.api.state import eval_status, evaluation_lock, greendc, status, training_lock
+from src.api.tasks import (
+    get_python_executable as resolve_python_executable,
+    run_eval_task as run_eval_subprocess,
+    run_train_task as run_train_subprocess,
+)
+from src.utils.model_registry import (
+    choose_training_config_path,
+    delete_related_model_artifacts,
+    get_config_cooling_mode,
+    metadata_path_for_model,
+    rename_related_model_artifacts,
+    shared_vecnormalize_path,
+    vecnormalize_path_for_model,
+)
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-CONFIGS_DIR = (BASE_DIR / "configs").resolve()
+logger = create_api_logger()
+
 MODELS_DIR = BASE_DIR / "data" / "models"
 OUTPUTS_DIR = BASE_DIR / "outputs" / "eval"
-
-LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-MODEL_NAME_PATTERN = re.compile(r"[^A-Za-z0-9._ -]+")
-
-
-def parse_bool(value: Optional[str], default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def load_cors_origins() -> List[str]:
-    raw = os.getenv("CORS_ORIGINS", "").strip()
-    if not raw:
-        return [
-            "http://localhost",
-            "http://127.0.0.1",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-        ]
-    try:
-        if raw.startswith("["):
-            origins = json.loads(raw)
-        else:
-            origins = [item.strip() for item in raw.split(",")]
-    except json.JSONDecodeError:
-        origins = [item.strip() for item in raw.split(",")]
-    return [origin.rstrip("/") for origin in origins if origin]
-
-
-def is_local_client(host: str) -> bool:
-    return host in LOCAL_CLIENT_HOSTS or host.startswith("127.")
-
-
-def normalize_output_name(value: str) -> str:
-    cleaned = MODEL_NAME_PATTERN.sub("", (value or "").strip()).replace(" ", "_")
-    cleaned = cleaned.strip("._-")
-    if not cleaned:
-        raise ValueError("name must contain letters or numbers")
-    return cleaned[:80]
-
-
-def normalize_model_filename(value: str) -> str:
-    cleaned = MODEL_NAME_PATTERN.sub("", os.path.basename((value or "").strip())).replace(" ", "_")
-    cleaned = cleaned.strip("._-")
-    if not cleaned:
-        raise ValueError("model name must contain letters or numbers")
-    if not cleaned.endswith(".zip"):
-        cleaned = f"{cleaned}.zip"
-    return cleaned[:100]
-
-
-def resolve_config_path(value: str) -> Path:
-    candidate = Path(value)
-    if not candidate.is_absolute():
-        candidate = (BASE_DIR / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
-    if not candidate.is_relative_to(CONFIGS_DIR):
-        raise ValueError("config must point to a file inside configs/")
-    if candidate.suffix.lower() not in {".yaml", ".yml"}:
-        raise ValueError("config must be a YAML file")
-    if not candidate.exists():
-        raise ValueError("config file not found")
-    return candidate
-
-
-MODE_TO_CONFIG = {
-    "AIR": "configs/default.yaml",
-    "LIQUID": "configs/liquid.yaml",
-    "HYBRID": "configs/hybrid.yaml",
-}
-
-CURRENCY_SYMBOLS = {
-    "EUR": "€",
-    "GBP": "£",
-    "USD": "$",
-}
-
-REGION_LABELS = {
-    "EU": "Europe",
-    "ES": "Spain",
-    "DE": "Germany",
-    "UK": "United Kingdom",
-    "FR": "France",
-    "NO": "Norway",
-    "US": "United States",
-    "BR": "Brazil",
-    "CA": "Canada",
-    "IN": "India",
-    "ASIA": "Asia-Pacific",
-}
-
-
-def infer_model_mode(model_name: str) -> Optional[str]:
-    normalized = Path(model_name).stem.lower()
-    if any(token in normalized for token in ("liquid", "water", "hydro")):
-        return "LIQUID"
-    if "hybrid" in normalized:
-        return "HYBRID"
-    if "air" in normalized:
-        return "AIR"
-    return None
-
-
-def choose_evaluation_config(requested_config: str, model_names: List[str]) -> str:
-    resolved_requested = resolve_config_path(requested_config)
-    default_config = resolve_config_path(MODE_TO_CONFIG["AIR"])
-    if resolved_requested != default_config:
-        return str(resolved_requested)
-
-    inferred_modes = {
-        infer_model_mode(model_name)
-        for model_name in model_names
-        if infer_model_mode(model_name) is not None
-    }
-    if len(inferred_modes) != 1:
-        return str(resolved_requested)
-
-    inferred_mode = inferred_modes.pop()
-    inferred_config = resolve_config_path(MODE_TO_CONFIG[inferred_mode])
-    logger.info("Auto-selected evaluation config %s for model(s): %s", inferred_config.name, ", ".join(model_names))
-    return str(inferred_config)
-
-
-def build_region_catalog() -> List[Dict[str, Any]]:
-    regions: List[Dict[str, Any]] = []
-    for code in sorted(GreenDCCalculator.REGION_DATA.keys()):
-        region_data = GreenDCCalculator.REGION_DATA[code]
-        currency_code = region_data["currency"]
-        regions.append(
-            {
-                "code": code,
-                "label": REGION_LABELS.get(code, code),
-                "price_per_kwh": region_data["price"],
-                "carbon_intensity_kg_kwh": region_data["intensity"],
-                "currency_code": currency_code,
-                "currency_symbol": {"EUR": "€", "GBP": "£", "USD": "$"}.get(
-                    currency_code,
-                    CURRENCY_SYMBOLS.get(currency_code, currency_code),
-                ),
-            }
-        )
-    return regions
-
-
-def get_api_key() -> str:
-    return os.getenv("SCARI_API_KEY", "").strip()
-
-
-async def require_admin_access(
-    request: Request,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-) -> None:
-    configured_key = get_api_key()
-    client_host = request.client.host if request.client else ""
-    if configured_key:
-        if not x_api_key or not secrets.compare_digest(x_api_key, configured_key):
-            raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
-        return
-    if not is_local_client(client_host):
-        raise HTTPException(
-            status_code=403,
-            detail="Protected endpoints are local-only unless SCARI_API_KEY is configured",
-        )
-
-
-def extract_primary_model(metrics: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-    models = metrics.get("models")
-    if isinstance(models, dict) and models:
-        name, data = min(
-            models.items(),
-            key=lambda item: item[1].get("total_power_consumption", float("inf")),
-        )
-        return name, data
-    scari = metrics.get("scari")
-    if isinstance(scari, dict):
-        return "SCARI", scari
-    return "baseline", metrics.get("baseline", {})
-
-
-def calculate_efficiency_summary(baseline: Dict[str, Any], primary: Dict[str, Any]) -> Dict[str, float | str]:
-    baseline_power = max(0.0, float(baseline.get("total_power_consumption", 0.0)))
-    primary_power = max(0.0, float(primary.get("total_power_consumption", baseline_power)))
-
-    has_it_data = (
-        "total_it_power_consumption" in baseline
-        or "total_it_power_consumption" in primary
-    )
-    baseline_it = max(0.0, float(baseline.get("total_it_power_consumption", 0.0)))
-    primary_it = max(0.0, float(primary.get("total_it_power_consumption", 0.0)))
-    baseline_overhead = max(0.0, baseline_power - baseline_it) if has_it_data else 0.0
-    primary_overhead = max(0.0, primary_power - primary_it) if has_it_data else 0.0
-
-    baseline_cooling = max(0.0, float(baseline.get("total_cooling_power_consumption", baseline_overhead)))
-    primary_cooling = max(0.0, float(primary.get("total_cooling_power_consumption", primary_overhead)))
-
-    total_power_savings = (
-        (baseline_power - primary_power) / baseline_power * 100 if baseline_power > 0 else 0.0
-    )
-    non_it_overhead_savings = (
-        (baseline_overhead - primary_overhead) / baseline_overhead * 100 if baseline_overhead > 0 else total_power_savings
-    )
-    cooling_savings = (
-        (baseline_cooling - primary_cooling) / baseline_cooling * 100 if baseline_cooling > 0 else non_it_overhead_savings
-    )
-
-    baseline_pue = max(0.0, float(baseline.get("average_pue", 0.0)))
-    optimized_pue = max(0.0, float(primary.get("average_pue", baseline_pue)))
-    pue_improvement = (
-        (baseline_pue - optimized_pue) / baseline_pue * 100 if baseline_pue > 0 else 0.0
-    )
-    baseline_pue_overhead = max(0.0, baseline_pue - 1.0)
-    optimized_pue_overhead = max(0.0, optimized_pue - 1.0)
-    pue_overhead_reduction = (
-        (baseline_pue_overhead - optimized_pue_overhead) / baseline_pue_overhead * 100
-        if baseline_pue_overhead > 1e-6
-        else pue_improvement
-    )
-
-    return {
-        "baseline_power_w": baseline_power,
-        "primary_power_w": primary_power,
-        "baseline_overhead_power_w": baseline_overhead,
-        "primary_overhead_power_w": primary_overhead,
-        "baseline_cooling_power_w": baseline_cooling,
-        "primary_cooling_power_w": primary_cooling,
-        "total_power_savings_percent": total_power_savings,
-        "non_it_overhead_savings_percent": non_it_overhead_savings,
-        "cooling_savings_percent": cooling_savings,
-        "optimization_savings_percent": non_it_overhead_savings,
-        "savings_basis": "non_it_overhead" if has_it_data and baseline_overhead > 0 else "total_power",
-        "baseline_pue": baseline_pue,
-        "optimized_pue": optimized_pue,
-        "pue_improvement_percent": pue_improvement,
-        "pue_overhead_reduction_percent": pue_overhead_reduction,
-    }
-
-
-def build_history_summary(entry_name: str, metrics: Dict[str, Any]) -> Dict[str, Any]:
-    baseline = metrics.get("baseline", {})
-    model_name, primary = extract_primary_model(metrics)
-    summary = calculate_efficiency_summary(baseline, primary)
-    return {
-        "id": entry_name,
-        "timestamp": entry_name,
-        "pue": primary.get("average_pue"),
-        "savings": round(float(summary["optimization_savings_percent"]), 2),
-        "total_power_savings_percent": round(float(summary["total_power_savings_percent"]), 2),
-        "overhead_savings_percent": round(float(summary["non_it_overhead_savings_percent"]), 2),
-        "cooling_savings_percent": round(float(summary["cooling_savings_percent"]), 2),
-        "savings_basis": summary["savings_basis"],
-        "safety_override_rate_percent": round(float(primary.get("safety_override_rate_percent", 0.0)), 2),
-        "safety_override_avg_fraction_active": round(float(primary.get("safety_override_avg_fraction_active", 0.0)), 4),
-        "steps": int(primary.get("total_steps", 5000)),
-        "model": model_name,
-    }
-
-
-def build_sustainability(metrics: Dict[str, Any], calculator: GreenDCCalculator) -> Dict[str, Any]:
-    baseline = metrics.get("baseline", {})
-    _, primary = extract_primary_model(metrics)
-    summary = calculate_efficiency_summary(baseline, primary)
-    total_steps = int(primary.get("total_steps", 5000))
-    sustainability = calculator.calculate_impact(
-        baseline_power_w=float(summary["baseline_power_w"]),
-        scari_power_w=float(summary["primary_power_w"]),
-        simulation_steps=total_steps,
-    )
-    if float(summary["baseline_pue"]) > 0:
-        sustainability["pue_baseline"] = round(float(summary["baseline_pue"]), 3)
-    if float(summary["optimized_pue"]) > 0:
-        sustainability["pue_optimized"] = round(float(summary["optimized_pue"]), 3)
-    sustainability.update(
-        {
-            "total_power_savings_percent": round(float(summary["total_power_savings_percent"]), 2),
-            "non_it_overhead_savings_percent": round(float(summary["non_it_overhead_savings_percent"]), 2),
-            "cooling_savings_percent": round(float(summary["cooling_savings_percent"]), 2),
-            "optimization_savings_percent": round(float(summary["optimization_savings_percent"]), 2),
-            "optimization_savings_basis": summary["savings_basis"],
-            "pue_improvement_percent": round(float(summary["pue_improvement_percent"]), 2),
-            "pue_overhead_reduction_percent": round(float(summary["pue_overhead_reduction_percent"]), 2),
-        }
-    )
-    return sustainability
-
-
-def build_evaluation_context(metrics: Dict[str, Any]) -> Dict[str, Any]:
-    baseline = metrics.get("baseline", {})
-    model_name, primary = extract_primary_model(metrics)
-    metadata = metrics.get("metadata", {})
-    raw_config = str(metadata.get("config", "configs/default.yaml"))
-    config_label = raw_config
-    cooling_mode = infer_model_mode(model_name) or "AIR"
-    try:
-        resolved_config = resolve_config_path(raw_config)
-        config_label = str(resolved_config.relative_to(BASE_DIR)).replace("\\", "/")
-        cooling_mode = Config.from_yaml(resolved_config).cooling.mode.upper()
-    except Exception:
-        pass
-
-    return {
-        "model": model_name,
-        "config": config_label,
-        "cooling_mode": cooling_mode,
-        "baseline": str(metadata.get("baseline_controller", baseline.get("controller_name", "BASELINE"))),
-        "seed": metadata.get("seed"),
-        "steps": int(primary.get("total_steps", baseline.get("total_steps", 0) or 0)),
-    }
-
-
-class JSONFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        log_obj = {
-            "time": self.formatTime(record),
-            "level": record.levelname,
-            "message": record.getMessage(),
-            "module": record.module,
-        }
-        return json.dumps(log_obj)
-
-
-logger = logging.getLogger("SCARI_API")
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(JSONFormatter())
-    logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-logger.propagate = False
 
 app = FastAPI(title="S.C.A.R.I API", version="2.1.0")
 
@@ -361,7 +61,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=load_cors_origins(),
     allow_origin_regex=origin_regex,
-    allow_credentials=parse_bool(os.getenv("CORS_ALLOW_CREDENTIALS"), False),
+    allow_credentials=parse_bool(__import__("os").getenv("CORS_ALLOW_CREDENTIALS"), False),
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
@@ -372,100 +72,23 @@ app.mount("/outputs/eval", StaticFiles(directory=str(OUTPUTS_DIR)), name="output
 
 
 def get_python_executable() -> str:
-    for candidate in [
-        BASE_DIR / ".venv" / "Scripts" / "python.exe",
-        BASE_DIR / "venv" / "Scripts" / "python.exe",
-        BASE_DIR / ".venv" / "bin" / "python",
-        BASE_DIR / "venv" / "bin" / "python",
-    ]:
-        if candidate.exists():
-            return str(candidate)
-    return "python"
+    return resolve_python_executable(BASE_DIR)
 
 
-class TrainingParams(BaseModel):
-    timesteps: int = 10000
-    config: str = "configs/default.yaml"
-    name: str = "scari_model"
-    cooling_mode: str = "AIR"
-
-    @field_validator("timesteps")
-    @classmethod
-    def validate_timesteps(cls, value: int) -> int:
-        if value < 1000 or value > 10000000:
-            raise ValueError("timesteps must be between 1,000 and 10,000,000")
-        return value
-
-    @field_validator("config")
-    @classmethod
-    def validate_config(cls, value: str) -> str:
-        return str(resolve_config_path(value))
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return normalize_output_name(value)
-
-    @field_validator("cooling_mode")
-    @classmethod
-    def validate_cooling_mode(cls, value: str) -> str:
-        valid = {"AIR", "LIQUID", "HYBRID"}
-        normalized = value.upper()
-        if normalized not in valid:
-            raise ValueError(f"cooling_mode must be one of {sorted(valid)}")
-        return normalized
+def run_train_task(params: TrainingParams) -> None:
+    run_train_subprocess(params, base_dir=BASE_DIR, status=status, logger=logger)
 
 
-class RenameRequest(BaseModel):
-    old_name: str
-    new_name: str
-
-    @field_validator("new_name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return normalize_model_filename(value)
-
-
-class EvaluationRequest(BaseModel):
-    model: str = "default_model.zip"
-    models: Optional[List[str]] = None
-    steps: int = 5000
-    name: Optional[str] = None
-    config: str = "configs/default.yaml"
-
-    @field_validator("steps")
-    @classmethod
-    def validate_steps(cls, value: int) -> int:
-        if value < 100 or value > 100000:
-            raise ValueError("steps must be between 100 and 100,000")
-        return value
-
-    @field_validator("config")
-    @classmethod
-    def validate_config(cls, value: str) -> str:
-        return str(resolve_config_path(value))
-
-
-class TrainingStatus:
-    is_training = False
-    progress = 0
-    current_step = 0
-    total_steps = 0
-    last_log = ""
-
-
-class EvaluationStatus:
-    is_evaluating = False
-    last_log = ""
-    error = ""
-    result = None
-
-
-status = TrainingStatus()
-eval_status = EvaluationStatus()
-greendc = GreenDCCalculator()
-training_lock = threading.Lock()
-evaluation_lock = threading.Lock()
+def run_eval_task(models_arg: str, steps: int, output_dir: Path, config_path: str) -> None:
+    logger.info("Starting evaluation task in %s", output_dir)
+    run_eval_subprocess(
+        models_arg,
+        steps,
+        output_dir,
+        config_path,
+        base_dir=BASE_DIR,
+        eval_status=eval_status,
+    )
 
 
 @app.get("/")
@@ -521,13 +144,23 @@ async def rename_model(
         raise HTTPException(status_code=404, detail="Model not found")
     if new_path.exists():
         raise HTTPException(status_code=400, detail="New name already exists")
+    for destination in (
+        metadata_path_for_model(new_path),
+        vecnormalize_path_for_model(new_path),
+    ):
+        if destination.exists():
+            raise HTTPException(status_code=400, detail=f"Destination already exists: {destination.name}")
     try:
         old_path.rename(new_path)
+        rename_related_model_artifacts(old_path, new_path)
         logger.info("Renamed model %s to %s", old_name, new_name)
         return {"message": f"Renamed {old_name} to {new_name}", "new_name": new_name}
     except OSError as exc:
         logger.error("Rename error: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to rename: {exc}") from exc
+    except FileExistsError as exc:
+        logger.error("Rename related artifacts error: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.delete("/models")
@@ -535,8 +168,16 @@ async def delete_all_models(_: None = Depends(require_admin_access)) -> Dict[str
     deleted_files: List[str] = []
     try:
         for model_file in MODELS_DIR.glob("*.zip"):
+            delete_related_model_artifacts(model_file)
             model_file.unlink()
             deleted_files.append(model_file.name)
+        for pattern in ("*.metadata.json", "*_vec_normalize.pkl", "config.json"):
+            for extra_file in MODELS_DIR.glob(pattern):
+                if extra_file.is_file():
+                    extra_file.unlink()
+        shared_vec_path = shared_vecnormalize_path(MODELS_DIR)
+        if shared_vec_path.exists():
+            shared_vec_path.unlink()
         logger.info("Deleted all models (%s files)", len(deleted_files))
         return {"message": f"Deleted {len(deleted_files)} models", "deleted": deleted_files}
     except OSError as exc:
@@ -554,6 +195,7 @@ async def delete_model(
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     try:
+        delete_related_model_artifacts(model_path)
         model_path.unlink()
         logger.info("Deleted model: %s", safe_name)
         return {"message": f"Deleted {safe_name}"}
@@ -562,97 +204,26 @@ async def delete_model(
         raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
 
 
-def run_train_task(params: TrainingParams) -> None:
-    global status
-    status.is_training = True
-    status.progress = 0
-    status.current_step = 0
-    status.total_steps = params.timesteps
-    logger.info("Starting training task: %s for %s steps", params.name, params.timesteps)
-    try:
-        cmd = [
-            get_python_executable(),
-            "-m",
-            "src.train",
-            "--timesteps",
-            str(params.timesteps),
-            "--config",
-            params.config,
-            "--output-name",
-            params.name,
-            "--cooling-mode",
-            params.cooling_mode,
-        ]
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONUNBUFFERED"] = "1"
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            cwd=str(BASE_DIR),
-            env=env,
-            bufsize=1,
-        )
-
-        import queue
-
-        def reader(pipe: Any, output_queue: "queue.Queue[Optional[str]]") -> None:
-            try:
-                with pipe:
-                    for line in iter(pipe.readline, ""):
-                        output_queue.put(line)
-            finally:
-                output_queue.put(None)
-
-        output_queue: "queue.Queue[Optional[str]]" = queue.Queue()
-        thread = threading.Thread(target=reader, args=(process.stdout, output_queue), daemon=True)
-        thread.start()
-
-        while True:
-            try:
-                line = output_queue.get(timeout=1)
-            except queue.Empty:
-                if process.poll() is not None:
-                    break
-                continue
-            if line is None:
-                break
-            status.last_log = line.strip()
-            if "Training complete" in line:
-                status.progress = 100
-            if "total_timesteps" in line:
-                try:
-                    parts = [part.strip() for part in line.split("|") if part.strip()]
-                    step_value = next((int(part) for part in parts if part.isdigit()), None)
-                    if step_value is not None:
-                        status.current_step = step_value
-                        status.progress = min(99, int(step_value / params.timesteps * 100))
-                except ValueError:
-                    logger.debug("Could not parse training progress from log line: %s", line.strip())
-        process.wait()
-        if process.returncode == 0:
-            status.progress = 100
-            status.last_log = "Training completed successfully."
-        else:
-            status.last_log = f"Training failed with exit code {process.returncode}"
-    except Exception as exc:
-        status.last_log = f"Error: {exc}"
-        logger.error("Training crashed: %s", exc)
-    finally:
-        status.is_training = False
-
-
 @app.post("/train")
 async def start_training(
     params: TrainingParams,
     background_tasks: BackgroundTasks,
     _: None = Depends(require_admin_access),
 ) -> Dict[str, str]:
+    try:
+        selected_config = choose_training_config_path(params.config, params.cooling_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if not training_lock.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="A training process is already running. Please wait.")
+
+    resolved_params = params.model_copy(
+        update={
+            "config": str(selected_config),
+            "cooling_mode": get_config_cooling_mode(selected_config),
+        }
+    )
 
     def run_train_with_lock(training_params: TrainingParams) -> None:
         try:
@@ -660,7 +231,7 @@ async def start_training(
         finally:
             training_lock.release()
 
-    background_tasks.add_task(run_train_with_lock, params)
+    background_tasks.add_task(run_train_with_lock, resolved_params)
     return {"message": "Training started"}
 
 
@@ -745,54 +316,6 @@ async def delete_historical_result(
         raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
 
 
-def run_eval_task(models_arg: str, steps: int, output_dir: Path, config_path: str) -> None:
-    global eval_status
-    eval_status.is_evaluating = True
-    eval_status.error = ""
-    eval_status.result = None
-    logger.info("Starting evaluation task in %s", output_dir)
-    cmd = [
-        get_python_executable(),
-        "-m",
-        "src.evaluate",
-        "--config",
-        config_path,
-        "--models",
-        models_arg,
-        "--output",
-        str(output_dir),
-        "--steps",
-        str(steps),
-    ]
-    try:
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            cwd=str(BASE_DIR),
-            env=env,
-        )
-        if process.stdout is not None:
-            for line in process.stdout:
-                eval_status.last_log = line.strip()
-        process.wait()
-        if process.returncode == 0:
-            metrics_path = output_dir / "metrics.json"
-            if metrics_path.exists():
-                with metrics_path.open("r", encoding="utf-8") as handle:
-                    eval_status.result = json.load(handle)
-        else:
-            eval_status.error = f"Evaluation process exited with code {process.returncode}"
-    except Exception as exc:
-        eval_status.error = str(exc)
-    finally:
-        eval_status.is_evaluating = False
-
-
 @app.post("/evaluate")
 async def run_evaluation(
     params: EvaluationRequest,
@@ -829,7 +352,7 @@ async def run_evaluation(
     run_dir = OUTPUTS_DIR / f"{clean_name}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     models_arg = ",".join(models_to_test)
-    selected_config = choose_evaluation_config(params.config, [Path(model_path).name for model_path in models_to_test])
+    selected_config = choose_evaluation_config(params.config, models_to_test)
 
     def run_eval_with_lock(selected_models: str, selected_steps: int, destination: Path, config_path: str) -> None:
         try:
@@ -888,60 +411,6 @@ async def get_explanations() -> Dict[str, Any]:
     return {"decisions": SAMPLE_DECISIONS}
 
 
-class DataCenterParams(BaseModel):
-    num_servers: int
-    topology: str = "spine_leaf"
-    annual_power_kwh: float = 1000000
-    baseline_pue: float = 1.67
-    optimized_pue: float = 1.1
-    region: str = "EU"
-
-    @field_validator("num_servers")
-    @classmethod
-    def validate_servers(cls, value: int) -> int:
-        if value < 1 or value > 100000:
-            raise ValueError("num_servers must be between 1 and 100,000")
-        return value
-
-    @field_validator("topology")
-    @classmethod
-    def validate_topology(cls, value: str) -> str:
-        valid_topologies = {"fat_tree", "clos", "spine_leaf", "three_tier"}
-        if value not in valid_topologies:
-            raise ValueError(f"topology must be one of {sorted(valid_topologies)}")
-        return value
-
-    @field_validator("region")
-    @classmethod
-    def validate_region(cls, value: str) -> str:
-        valid_regions = set(GreenDCCalculator.REGION_DATA.keys())
-        if value not in valid_regions:
-            raise ValueError(f"region must be one of {sorted(valid_regions)}")
-        return value
-
-
-class ROIParams(BaseModel):
-    num_servers: int
-    investment_eur: float
-    annual_savings_eur: float
-    region: str = "EU"
-
-    @field_validator("investment_eur", "annual_savings_eur")
-    @classmethod
-    def validate_positive(cls, value: float) -> float:
-        if value < 0:
-            raise ValueError("Values must be non-negative")
-        return value
-
-    @field_validator("region")
-    @classmethod
-    def validate_region(cls, value: str) -> str:
-        valid_regions = set(GreenDCCalculator.REGION_DATA.keys())
-        if value not in valid_regions:
-            raise ValueError(f"region must be one of {sorted(valid_regions)}")
-        return value
-
-
 @app.post("/calculator/embodied-carbon")
 async def calculate_embodied_carbon(params: DataCenterParams) -> Dict[str, Any]:
     result = greendc.calculate_embodied_carbon(num_servers=params.num_servers, topology=params.topology)
@@ -956,7 +425,7 @@ async def analyze_network_topology(params: DataCenterParams) -> Dict[str, Any]:
 
 @app.post("/calculator/scenario-comparison")
 async def compare_scenarios(params: DataCenterParams) -> Dict[str, Any]:
-    calc = GreenDCCalculator(region=params.region)
+    calc = greendc.__class__(region=params.region)
     result = calc.compare_scenarios(
         num_servers=params.num_servers,
         baseline_pue=params.baseline_pue,
@@ -968,7 +437,7 @@ async def compare_scenarios(params: DataCenterParams) -> Dict[str, Any]:
 
 @app.post("/calculator/roi-analysis")
 async def analyze_roi(params: ROIParams) -> Dict[str, Any]:
-    calc = GreenDCCalculator(region=params.region)
+    calc = greendc.__class__(region=params.region)
     result = calc.roi_analysis(
         num_servers=params.num_servers,
         investment_eur=params.investment_eur,
@@ -979,7 +448,7 @@ async def analyze_roi(params: ROIParams) -> Dict[str, Any]:
 
 @app.post("/calculator/comprehensive")
 async def comprehensive_analysis(params: DataCenterParams) -> Dict[str, Any]:
-    calc = GreenDCCalculator(region=params.region)
+    calc = greendc.__class__(region=params.region)
     operational = calc.compare_scenarios(
         num_servers=params.num_servers,
         baseline_pue=params.baseline_pue,

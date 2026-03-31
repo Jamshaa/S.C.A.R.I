@@ -38,11 +38,9 @@ class PerformanceVisualizer:
             "#ec4899",
             "#14b8a6",
         ]
+        self._apply_style()
 
-    @staticmethod
-    def _normalize_baseline_label(value: str) -> str:
-        raw = (value or "Baseline").strip()
-        return "BASELINE" if raw.upper() == "REAL_WORLD_PID" else raw
+    def _apply_style(self) -> None:
         plt.style.use("default")
         plt.rcParams.update(
             {
@@ -57,6 +55,11 @@ class PerformanceVisualizer:
                 "grid.alpha": 0.6,
             }
         )
+
+    @staticmethod
+    def _normalize_baseline_label(value: str) -> str:
+        raw = (value or "Baseline").strip()
+        return "BASELINE" if raw.upper() == "REAL_WORLD_PID" else raw
 
     def _get_color(self, model_name: str, index: int) -> str:
         lowered = model_name.lower()
@@ -169,11 +172,11 @@ class PerformanceVisualizer:
         ax.set_ylim(max(20, min(all_temps) - 5), max(all_temps) + 5)
 
     def _plot_cumulative_savings(self, ax, baseline_data, model_data_dict) -> None:
-        baseline_cumsum = np.cumsum(baseline_data["powers"]) / 1000.0
+        baseline_cumsum = self._cumulative_energy_kwh(baseline_data["powers"])
         time = np.arange(len(baseline_cumsum))
         ax.axhline(0, color="black", linestyle="-", linewidth=1, alpha=0.3)
         for index, (model_name, model_data) in enumerate(model_data_dict.items()):
-            model_cumsum = np.cumsum(model_data["powers"]) / 1000.0
+            model_cumsum = self._cumulative_energy_kwh(model_data["powers"])
             savings = baseline_cumsum - model_cumsum
             color = self._get_color(model_name, index)
             ax.plot(time, savings, label=model_name, color=color, linewidth=2)
@@ -184,6 +187,11 @@ class PerformanceVisualizer:
         ax.set_title("Cumulative Energy Savings vs Baseline", fontsize=14, fontweight="bold")
         ax.legend(loc="upper left")
         ax.grid(True, alpha=0.3)
+
+    @staticmethod
+    def _cumulative_energy_kwh(powers: List[float], step_duration_s: float = 1.0) -> np.ndarray:
+        power_array = np.array(powers, dtype=np.float64)
+        return np.cumsum(power_array * step_duration_s) / 3_600_000.0
 
     def _plot_pue_comparison(self, ax, baseline_metrics, model_metrics_dict) -> None:
         baseline_label = self._normalize_baseline_label(baseline_metrics.get("controller_name", "Baseline"))

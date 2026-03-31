@@ -26,3 +26,13 @@ export const getAPIBaseURL = () => {
 };
 
 export const API_BASE = getAPIBaseURL();
+
+export const TRAINING_CONFIG_BY_MODE = {
+  AIR: 'configs/default.yaml',
+  LIQUID: 'configs/liquid.yaml',
+  HYBRID: 'configs/hybrid.yaml',
+};
+
+export const getTrainingConfigForMode = (mode = 'AIR') => (
+  TRAINING_CONFIG_BY_MODE[String(mode || 'AIR').toUpperCase()] || TRAINING_CONFIG_BY_MODE.AIR
+);

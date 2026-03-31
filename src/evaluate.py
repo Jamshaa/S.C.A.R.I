@@ -20,6 +20,7 @@ from src.utils.config import (
     resolve_config_file,
 )
 from src.utils.explainability import DecisionExplainer
+from src.utils.model_registry import choose_evaluation_config_path, load_model_metadata
 from src.utils.visualization import PerformanceVisualizer
 
 logger = logging.getLogger(__name__)
@@ -485,7 +486,8 @@ def run_evaluation() -> None:
     np.random.seed(args.seed)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    config_path = choose_config_path(args.config)
+    model_paths = [item.strip() for item in args.models.split(",") if item.strip()]
+    config_path = choose_evaluation_config_path(args.config, model_paths)
     try:
         cfg = Config.from_yaml(config_path)
     except Exception as exc:
@@ -508,10 +510,15 @@ def run_evaluation() -> None:
     if hasattr(baseline_env, "close"):
         baseline_env.close()
 
-    model_paths = [item.strip() for item in args.models.split(",") if item.strip()]
     model_metrics_dict: Dict[str, Dict[str, Any]] = {}
     model_data_dict: Dict[str, Dict[str, List[float]]] = {}
     decisions_dict: Dict[str, List[Dict[str, Any]]] = {}
+    model_metadata_dict = {
+        Path(model_path).name: metadata
+        for model_path in model_paths
+        for metadata in [load_model_metadata(model_path)]
+        if metadata is not None
+    }
 
     print(f"\nEvaluating {len(model_paths)} model(s) against {baseline_metrics.controller_name}...")
     for model_path in model_paths:
@@ -550,6 +557,7 @@ def run_evaluation() -> None:
                     "config": str(config_path),
                     "seed": args.seed,
                     "baseline_controller": baseline_metrics.controller_name,
+                    "model_metadata": model_metadata_dict,
                 },
                 "baseline": baseline_metrics.to_dict(),
                 "models": model_metrics_dict,

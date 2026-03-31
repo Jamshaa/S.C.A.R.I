@@ -156,6 +156,34 @@ class TestServerCoolingMode:
         assert 'cooling_power' in result
         assert 'health' in result
 
+    def test_zero_load_matches_idle_power_at_nominal_temperature(self):
+        cfg = Config()
+        server = Server(0, cfg)
+        server.temperature = 40.0
+        result = server.update_physics(cpu_load=0.0, cooling_action=0.0)
+        assert result['it_power'] == pytest.approx(cfg.physics.p_idle)
+
+    def test_max_load_matches_pmax_at_nominal_temperature(self):
+        cfg = Config()
+        server = Server(0, cfg)
+        server.temperature = 40.0
+        result = server.update_physics(cpu_load=1.0, cooling_action=0.0)
+        assert result['it_power'] == pytest.approx(cfg.physics.p_max)
+
+    def test_thermal_leakage_only_activates_above_reference_temperature(self):
+        cfg = Config()
+        cool_server = Server(0, cfg)
+        hot_server = Server(1, cfg)
+        cool_server.temperature = 40.0
+        hot_server.temperature = 70.0
+
+        cool_result = cool_server.update_physics(cpu_load=0.5, cooling_action=0.0)
+        hot_result = hot_server.update_physics(cpu_load=0.5, cooling_action=0.0)
+
+        assert cool_result['leakage_power'] == pytest.approx(0.0)
+        assert hot_result['leakage_power'] > 0.0
+        assert hot_result['it_power'] > cool_result['it_power']
+
 class TestDataCenterEnvWithModes:
 
     @pytest.fixture(params=['AIR', 'LIQUID', 'HYBRID'])

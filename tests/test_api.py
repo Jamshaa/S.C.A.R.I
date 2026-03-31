@@ -1,4 +1,8 @@
 import asyncio
+import json
+import shutil
+import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +18,12 @@ client = TestClient(api_app.app)
 
 def make_request(host: str):
     return SimpleNamespace(client=SimpleNamespace(host=host))
+
+
+def make_workspace_tmp(prefix: str) -> Path:
+    tmp_dir = Path("tmp") / f"{prefix}_{uuid.uuid4().hex}"
+    tmp_dir.mkdir(parents=True, exist_ok=False)
+    return tmp_dir
 
 
 def test_read_main():
@@ -253,3 +263,75 @@ def test_require_admin_access_rejects_wrong_api_key(monkeypatch):
         asyncio.run(api_app.require_admin_access(make_request("203.0.113.10"), "wrong"))
     assert exc.value.status_code == 401
     assert exc.value.detail == "Invalid or missing X-API-Key"
+
+
+def test_choose_evaluation_config_prefers_model_metadata():
+    tmp_path = make_workspace_tmp("metadata_eval")
+    try:
+        model_path = tmp_path / "renamed_model.zip"
+        model_path.write_text("zip", encoding="utf-8")
+        (tmp_path / "renamed_model.metadata.json").write_text(
+            json.dumps({"cooling_mode": "LIQUID"}),
+            encoding="utf-8",
+        )
+
+        selected = api_app.choose_evaluation_config("configs/default.yaml", [str(model_path)])
+
+        assert selected.endswith("liquid.yaml")
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_rename_model_moves_metadata_and_vecnormalize(monkeypatch):
+    tmp_path = make_workspace_tmp("rename_model")
+    monkeypatch.setattr(api_app, "MODELS_DIR", tmp_path)
+    try:
+        (tmp_path / "old_model.zip").write_text("zip", encoding="utf-8")
+        (tmp_path / "old_model.metadata.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "old_model_vec_normalize.pkl").write_text("stats", encoding="utf-8")
+
+        response = client.post("/models/rename", json={"old_name": "old_model.zip", "new_name": "new_model"})
+
+        assert response.status_code == 200
+        assert (tmp_path / "new_model.zip").exists()
+        assert (tmp_path / "new_model.metadata.json").exists()
+        assert (tmp_path / "new_model_vec_normalize.pkl").exists()
+        assert not (tmp_path / "old_model.metadata.json").exists()
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_delete_model_removes_metadata_and_vecnormalize(monkeypatch):
+    tmp_path = make_workspace_tmp("delete_model")
+    monkeypatch.setattr(api_app, "MODELS_DIR", tmp_path)
+    try:
+        (tmp_path / "sample_model.zip").write_text("zip", encoding="utf-8")
+        (tmp_path / "sample_model.metadata.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "sample_model_vec_normalize.pkl").write_text("stats", encoding="utf-8")
+
+        response = client.delete("/models/sample_model.zip")
+
+        assert response.status_code == 200
+        assert not (tmp_path / "sample_model.zip").exists()
+        assert not (tmp_path / "sample_model.metadata.json").exists()
+        assert not (tmp_path / "sample_model_vec_normalize.pkl").exists()
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_delete_all_models_removes_registry_sidecars(monkeypatch):
+    tmp_path = make_workspace_tmp("delete_all_models")
+    monkeypatch.setattr(api_app, "MODELS_DIR", tmp_path)
+    try:
+        (tmp_path / "air_model.zip").write_text("zip", encoding="utf-8")
+        (tmp_path / "air_model.metadata.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "air_model_vec_normalize.pkl").write_text("stats", encoding="utf-8")
+        (tmp_path / "vec_normalize.pkl").write_text("shared", encoding="utf-8")
+        (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+
+        response = client.delete("/models")
+
+        assert response.status_code == 200
+        assert list(tmp_path.glob("*")) == []
+    finally:
+        shutil.rmtree(tmp_path, ignore_errors=True)

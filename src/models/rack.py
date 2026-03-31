@@ -63,9 +63,9 @@ class Rack:
     def get_cooling_raw_power(self) -> float:
         return self.last_cooling_power
 
-    def reset(self) -> None:
+    def reset(self, rng: Any | None=None) -> None:
         for server in self.servers:
-            server.reset()
+            server.reset(rng=rng)
         self.last_cooling_power = 0.0
         logger.debug(f'Rack {self.id} reset')
 

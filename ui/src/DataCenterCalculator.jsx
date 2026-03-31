@@ -6,7 +6,7 @@ import {
   Building2, Factory, TreePine, TrendingUp, CircleDollarSign,
   Lock, Unlock, Trash2, Clock
 } from 'lucide-react';
-import { API_BASE } from './config';
+import { apiFetch, apiJsonFetch, jsonRequest } from './apiClient';
 const sanitiseText = (value = '') => String(value)
   .replaceAll('â€“', '-')
   .replaceAll('Â·', '·')
@@ -126,9 +126,7 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
     let isMounted = true;
     const fetchCalculatorInfo = async () => {
       try {
-        const res = await fetch(`${API_BASE}/calculator/info`);
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await apiJsonFetch('/calculator/info');
         if (!isMounted || !Array.isArray(data.regions) || data.regions.length === 0) return;
         setRegionOptions(data.regions);
         setFormData(prev => (
@@ -183,38 +181,30 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch(`${API_BASE}/history`);
-      if (res.ok) {
-        const data = await res.json();
-        setHistory(data.history || []);
-        setShowHistory(true);
-      }
-    } catch {
-      onToast?.('Failed to load history', 'error');
+      const data = await apiJsonFetch('/history');
+      setHistory(data.history || []);
+      setShowHistory(true);
+    } catch (error) {
+      onToast?.(`Failed to load history: ${error.message}`, 'error');
     } finally {
       setLoadingHistory(false);
     }
   };
   const loadHistoricalRun = async (evalId) => {
     try {
-      const res = await fetch(`${API_BASE}/history/${evalId}`);
-      if (res.ok) importFromEval(await res.json());
-    } catch {
-      onToast?.('Failed to load historical run', 'error');
+      importFromEval(await apiJsonFetch(`/history/${evalId}`));
+    } catch (error) {
+      onToast?.(`Failed to load historical run: ${error.message}`, 'error');
     }
   };
   const deleteHistoricalRun = async (evalId, e) => {
     e?.stopPropagation();
     try {
-      const res = await fetch(`${API_BASE}/history/${evalId}`, { method: 'DELETE' });
-      if (res.ok) {
-        setHistory(prev => prev.filter(h => h.id !== evalId));
-        onToast?.('Evaluation deleted', 'success');
-      } else {
-        onToast?.('Failed to delete', 'error');
-      }
-    } catch {
-      onToast?.('Failed to delete evaluation', 'error');
+      await apiFetch(`/history/${evalId}`, { method: 'DELETE' });
+      setHistory(prev => prev.filter(h => h.id !== evalId));
+      onToast?.('Evaluation deleted', 'success');
+    } catch (error) {
+      onToast?.(`Failed to delete evaluation: ${error.message}`, 'error');
     }
   };
   const handleInputChange = (field, value) => {
@@ -233,26 +223,16 @@ const DataCenterCalculator = ({ onToast, evalResults }) => {
   const runAnalysis = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/calculator/comprehensive`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      const data = await apiJsonFetch('/calculator/comprehensive', jsonRequest('POST', formData));
       let final = { ...data.data };
       if (analysisOptions.roi) {
-        const roiRes = await fetch(`${API_BASE}/calculator/roi-analysis`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            num_servers: formData.num_servers, 
-            investment_eur: roiData.investment_eur,
-            annual_savings_eur: estimatedSavings.costSaved,
-            region: formData.region
-          })
-        });
-        if (roiRes.ok) final.roi = (await roiRes.json()).data;
+        const roiPayload = {
+          num_servers: formData.num_servers,
+          investment_eur: roiData.investment_eur,
+          annual_savings_eur: estimatedSavings.costSaved,
+          region: formData.region
+        };
+        final.roi = (await apiJsonFetch('/calculator/roi-analysis', jsonRequest('POST', roiPayload))).data;
       }
       if (!analysisOptions.operational) delete final.operational;
       if (!analysisOptions.embodied) delete final.embodied;

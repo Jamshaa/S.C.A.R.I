@@ -3,15 +3,18 @@ import logging
 from pathlib import Path
 import re
 import sys
-from typing import Callable
+from typing import Callable, Optional
+
+import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-import numpy as np
-from src.utils.config import Config, DEFAULT_CONFIG, COOLING_COST_DB, PREFERRED_CONFIG_PATH, get_available_config_paths, prompt_for_config_selection, resolve_config_file
+
 from src.envs.datacenter_env import DataCenterEnv
 from src.models.policy import AttentionPolicy
+from src.utils.config import Config, DEFAULT_CONFIG, COOLING_COST_DB, PREFERRED_CONFIG_PATH, get_available_config_paths, prompt_for_config_selection, resolve_config_file
+from src.utils.model_registry import build_model_metadata, choose_training_config_path, save_model_metadata
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('SCARI')
 OUTPUT_NAME_PATTERN = re.compile(r'[^A-Za-z0-9._ -]+')
@@ -45,12 +48,25 @@ def apply_training_overrides(cfg: Config, args: argparse.Namespace) -> Config:
         cfg.training.timesteps = args.timesteps
     if getattr(args, 'profile', None):
         cfg.reward.profile = args.profile
-    cfg.cooling.mode = args.cooling_mode.upper()
-    if cfg.cooling.mode in COOLING_COST_DB:
-        db = COOLING_COST_DB[cfg.cooling.mode]
+    if getattr(args, 'cooling_mode', None):
+        requested_mode = args.cooling_mode.upper()
+        configured_mode = cfg.cooling.mode.upper()
+        if configured_mode != requested_mode:
+            raise ValueError(
+                f'Config cooling mode {configured_mode} does not match requested mode {requested_mode}'
+            )
+        cfg.cooling.mode = requested_mode
+    active_mode = cfg.cooling.mode.upper()
+    if active_mode in COOLING_COST_DB:
+        db = COOLING_COST_DB[active_mode]
         cfg.cooling.capex_per_server = db['capex_per_server_eur']
         cfg.cooling.opex_per_server_year = db['opex_per_server_year_eur']
     return cfg
+
+
+def resolve_training_profile(config_argument: Optional[str], cooling_mode: Optional[str]) -> Path:
+    selected_config = choose_config_path(config_argument)
+    return choose_training_config_path(selected_config, cooling_mode)
 
 
 def build_learning_rate(training_cfg) -> float | Callable[[float], float]:
@@ -79,7 +95,7 @@ def run_training():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--profile', type=str, help='Optional metadata label for the run; does not change reward logic')
     parser.add_argument('--output-name', type=str, default='scari_final')
-    parser.add_argument('--cooling-mode', type=str, default='AIR', choices=['AIR', 'LIQUID', 'HYBRID'], help='Cooling system type: AIR, LIQUID, or HYBRID')
+    parser.add_argument('--cooling-mode', type=str, default=None, choices=['AIR', 'LIQUID', 'HYBRID'], help='Cooling system type: AIR, LIQUID, or HYBRID')
     args = parser.parse_args()
     if args.list_configs:
         print_available_configs()
@@ -94,7 +110,7 @@ def run_training():
     print('=' * 70)
     print('🚀 S.C.A.R.I — PRODUCTION TRAINING ENGINE')
     print('=' * 70)
-    config_path = choose_config_path(args.config)
+    config_path = resolve_training_profile(args.config, args.cooling_mode)
     try:
         cfg = Config.from_yaml(config_path)
     except Exception as e:
@@ -105,6 +121,7 @@ def run_training():
         except Exception:
             cfg = DEFAULT_CONFIG
     cfg = apply_training_overrides(cfg, args)
+    effective_cooling_mode = cfg.cooling.mode.upper()
     num_servers = cfg.environment.num_racks * cfg.environment.servers_per_rack
     cost_summary = cfg.cooling.get_cost_summary(num_servers)
     print(f'\n📂 Configuration:')
@@ -113,7 +130,7 @@ def run_training():
     print(f'   Logs dir    : {log_dir}')
     print(f'   Profile     : {cfg.reward.profile}')
     print(f'\n❄️  Cooling System:')
-    print(f'   Mode        : {cfg.cooling.mode}')
+    print(f'   Mode        : {effective_cooling_mode}')
     print(f"   CAPEX total : €{cost_summary['capex_total_eur']:,.0f}")
     print(f"   OPEX/year   : €{cost_summary['opex_annual_eur']:,.0f}")
     print(f"   TCO (5yr)   : €{cost_summary['tco_eur']:,.0f}")
@@ -156,6 +173,16 @@ def run_training():
                 if saved_model_name:
                     env.save(model_dir / f'{Path(saved_model_name).stem}_vec_normalize.pkl')
             cfg.to_json(model_dir / 'config.json')
+            if saved_model_name:
+                save_model_metadata(
+                    model_dir / f'{Path(saved_model_name).stem}.zip',
+                    build_model_metadata(
+                        config_path=config_path,
+                        cooling_mode=effective_cooling_mode,
+                        seed=args.seed,
+                        timesteps=cfg.training.timesteps,
+                    ),
+                )
             print(f'📝 Config saved to {model_dir}')
             if 'env' in locals():
                 env.close()

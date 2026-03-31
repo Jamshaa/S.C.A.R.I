@@ -119,3 +119,25 @@ def test_ambient_temperature_can_vary_across_episode():
 
     assert max(observed) > min(observed)
     assert all(cfg.physics.min_temp <= value <= cfg.physics.max_temp for value in observed)
+
+
+def test_env_reset_is_reproducible_with_same_seed():
+    cfg = Config()
+    env_a = DataCenterEnv(cfg)
+    env_b = DataCenterEnv(cfg)
+
+    obs_a, _ = env_a.reset(seed=42)
+    obs_b, _ = env_b.reset(seed=42)
+
+    np.testing.assert_allclose(obs_a, obs_b)
+    np.testing.assert_allclose(env_a.rack.get_temperatures(), env_b.rack.get_temperatures())
+
+    zero_action = np.zeros(env_a.num_servers, dtype=np.float32)
+    next_a, reward_a, terminated_a, truncated_a, info_a = env_a.step(zero_action)
+    next_b, reward_b, terminated_b, truncated_b, info_b = env_b.step(zero_action)
+
+    np.testing.assert_allclose(next_a, next_b)
+    assert reward_a == pytest.approx(reward_b)
+    assert terminated_a == terminated_b
+    assert truncated_a == truncated_b
+    assert info_a['total_power'] == pytest.approx(info_b['total_power'])
