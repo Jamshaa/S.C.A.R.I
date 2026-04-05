@@ -103,31 +103,31 @@ export const buildEvaluationStory = (baseline = {}, candidate = {}, context = {}
   const safe = safetyViolations === 0;
   if (totalSavingsPct > 0 && safe) {
     return {
-      headline: 'SCARI beat the baseline safely',
-      kicker: `${totalSavingsPct.toFixed(2)}% lower total facility power in ${getScenarioLabel(context)}.`,
+      headline: 'SCARI saved energy and stayed safe',
+      kicker: `${totalSavingsPct.toFixed(2)}% lower energy use in ${getScenarioLabel(context)}.`,
       tone: 'var(--success)',
       overrideTone,
     };
   }
   if (totalSavingsPct > 0 && !safe) {
     return {
-      headline: 'SCARI saved energy but lost thermal safety',
-      kicker: `${totalSavingsPct.toFixed(2)}% savings, but ${safetyViolations} safety violations were recorded.`,
+      headline: 'SCARI saved energy but the run got too hot',
+      kicker: `${totalSavingsPct.toFixed(2)}% energy saved, but ${safetyViolations} heat alerts appeared.`,
       tone: 'var(--warning)',
       overrideTone,
     };
   }
   if (safe) {
     return {
-      headline: 'SCARI stayed safe but did not beat the baseline',
-      kicker: `No thermal violations, but savings versus baseline were ${totalSavingsPct.toFixed(2)}%.`,
+      headline: 'SCARI stayed safe but did not save energy',
+      kicker: `No heat alerts, but energy saved versus the standard run was ${totalSavingsPct.toFixed(2)}%.`,
       tone: 'var(--text)',
       overrideTone,
     };
   }
   return {
-    headline: 'SCARI did not close the run successfully',
-    kicker: `The evaluation under ${getScenarioLabel(context)} requires manual review.`,
+    headline: 'This run needs a closer look',
+    kicker: `The results for ${getScenarioLabel(context)} need manual review.`,
     tone: 'var(--danger)',
     overrideTone,
   };
@@ -153,24 +153,24 @@ export const downloadFileFromApi = async (url, filename, addToast) => {
 
 export const CHART_LABELS = {
   temperature_comparison: {
-    title: 'Temperature Over Time',
-    desc: 'Server temperatures: baseline PID vs SCARI agent',
+    title: 'Heat Over Time',
+    desc: 'How hot the servers were during the run',
   },
   power_comparison: {
-    title: 'Power Consumption',
-    desc: 'Total electrical power usage comparison',
+    title: 'Energy Use',
+    desc: 'Total power used by the standard run and SCARI',
   },
   cooling_efficiency: {
-    title: 'Cooling Efficiency',
-    desc: 'PUE and cooling energy overhead per step',
+    title: 'Cooling Load',
+    desc: 'How much extra energy cooling needed',
   },
   performance_dashboard: {
-    title: 'Performance Dashboard',
-    desc: 'Summary of all key metrics in one view',
+    title: 'Results Overview',
+    desc: 'Main results in one place',
   },
   reward_analysis: {
-    title: 'Agent Reward',
-    desc: 'Cumulative reward signal during evaluation',
+    title: 'Model Score',
+    desc: 'How well the AI performed during the run',
   },
 };
 

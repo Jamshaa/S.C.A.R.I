@@ -16,18 +16,18 @@ const WorkflowView = ({
       <div>
         <div className="card-title" style={{ marginBottom: '10px' }}>
           <Activity size={12} />
-          Main TFG Flow
+          How It Works
         </div>
-        <h2 style={{ marginBottom: '8px' }}>From checkpoint selection to defendable results</h2>
+        <h2 style={{ marginBottom: '8px' }}>Run and Review</h2>
         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', maxWidth: '760px' }}>
-          Use this flow to pick a PPO model, launch a single evaluation,
-          inspect the technical outcome and finally translate it into sustainability impact.
+          Use this flow to pick a model, run one test, review the results,
+          and turn them into yearly savings and impact.
         </p>
       </div>
       <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={() => setMainTab('analytics')} disabled={!selectedModel && models.length === 0}>
           <BarChart3 size={13} />
-          Open Evaluation
+          Open Results
         </button>
       </div>
     </div>
@@ -36,44 +36,44 @@ const WorkflowView = ({
       <div className="card workflow-step-card">
         <div className="workflow-step-index">1</div>
         <div>
-          <div className="text-label">Choose Model</div>
+          <div className="text-label">Pick a Model</div>
           <h3 style={{ marginTop: '8px' }}>{selectedModel || 'No model selected yet'}</h3>
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
             {selectedModel
-              ? 'Evaluation profile will be auto-detected from model metadata when available.'
-              : 'Pick a checkpoint from the registry on the left before launching validation.'}
+              ? 'The right setup will be picked automatically from saved model data when available.'
+              : 'Pick a model from the list on the left before starting a test.'}
           </p>
         </div>
       </div>
       <div className="card workflow-step-card">
         <div className="workflow-step-index">2</div>
         <div>
-          <div className="text-label">Launch Validation</div>
-          <h3 style={{ marginTop: '8px' }}>Single evaluation</h3>
+          <div className="text-label">Run Test</div>
+          <h3 style={{ marginTop: '8px' }}>One test</h3>
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
-            Run one controlled comparison against the baseline and inspect power, thermal safety and safety-override dependence.
+            Run one comparison and check energy use, temperature and heat safety.
           </p>
         </div>
       </div>
       <div className="card workflow-step-card">
         <div className="workflow-step-index">3</div>
         <div>
-          <div className="text-label">Read Outcome</div>
-          <h3 style={{ marginTop: '8px' }}>{results?.context?.model || 'Awaiting evaluation output'}</h3>
+          <div className="text-label">See Results</div>
+          <h3 style={{ marginTop: '8px' }}>{results?.context?.model || 'Waiting for results'}</h3>
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
             {results?.context
-              ? `${getScenarioLabel(results.context)} · ${formatCoolingMode(results.context.cooling_mode)} · ${results.context.steps} steps`
-              : 'The evaluation view will show who won, if the run was safe and how much SCARI relied on safety override.'}
+              ? `${getScenarioLabel(results.context)} | ${formatCoolingMode(results.context.cooling_mode)} | ${results.context.steps} steps`
+              : 'The results view will show the winner, any heat issues and the main numbers.'}
           </p>
         </div>
       </div>
       <div className="card workflow-step-card">
         <div className="workflow-step-index">4</div>
         <div>
-          <div className="text-label">Project Impact</div>
-          <h3 style={{ marginTop: '8px' }}>Translate to energy, CO2 and ROI</h3>
+          <div className="text-label">Estimate Impact</div>
+          <h3 style={{ marginTop: '8px' }}>Turn results into savings, CO2 and ROI</h3>
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>
-            Push the latest evaluation into the calculator to move from technical telemetry to annual savings and sustainability narrative.
+            Send the latest run to the calculator to estimate yearly savings and climate impact.
           </p>
         </div>
       </div>
@@ -83,23 +83,23 @@ const WorkflowView = ({
       <div className="card">
         <div className="card-title">
           <BarChart3 size={12} />
-          Quick Evaluation
+          Quick Test
         </div>
         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-          Compare the selected checkpoint against its baseline and inspect metrics, charts and decision trace.
+          Run the selected model and review the numbers, charts and decision steps.
         </p>
         <button className="btn btn-primary" onClick={handleEvaluate} disabled={!selectedModel || isEvaluating}>
           <Play size={13} />
-          Run Evaluation
+          Run Test
         </button>
       </div>
       <div className="card">
         <div className="card-title">
           <Leaf size={12} />
-          Sustainability Impact
+          Savings Outlook
         </div>
         <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
-          Import the latest measured PUE and use it to generate annual savings, carbon and ROI narratives.
+          Use the latest run to estimate yearly savings, carbon impact and ROI.
         </p>
         <button className="btn btn-outline" onClick={() => setMainTab('calculator')}>
           <Leaf size={13} />
