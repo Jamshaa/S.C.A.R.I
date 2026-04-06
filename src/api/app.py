@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -90,6 +90,10 @@ def run_eval_task(models_arg: str, steps: int, output_dir: Path, config_path: st
         eval_status=eval_status,
     )
 
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(content=b"", media_type="image/x-icon", status_code=204)
 
 @app.get("/")
 async def root() -> Dict[str, Any]:
