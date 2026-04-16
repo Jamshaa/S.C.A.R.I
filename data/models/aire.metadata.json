@@ -1,0 +1,8 @@
+{
+  "config_path": "configs/default.yaml",
+  "resolved_config": "C:\\Users\\poral\\Documents\\GitHub\\S.C.A.R.I\\configs\\default.yaml",
+  "cooling_mode": "AIR",
+  "seed": 42,
+  "timesteps": 100000,
+  "created_at": "2026-04-06T15:25:01.320196+00:00"
+}

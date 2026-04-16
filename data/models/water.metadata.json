@@ -1,8 +1,0 @@
-{
-  "config_path": "configs/liquid.yaml",
-  "resolved_config": "C:\\Users\\poral\\Documents\\GitHub\\S.C.A.R.I\\configs\\liquid.yaml",
-  "cooling_mode": "LIQUID",
-  "seed": 42,
-  "timesteps": 10000,
-  "created_at": "2026-04-06T14:55:33.054966+00:00"
-}
