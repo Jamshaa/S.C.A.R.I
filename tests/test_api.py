@@ -134,10 +134,10 @@ def test_roi_analysis_uses_requested_region():
 
 def test_build_sustainability_supports_current_metrics_shape():
     metrics = {
-        "baseline": {"total_power_consumption": 1000.0},
+        "baseline": {"total_power_consumption": 3_600_000.0},
         "models": {
             "scari_safe": {
-                "total_power_consumption": 800.0,
+                "total_power_consumption": 2_880_000.0,
                 "average_pue": 1.18,
                 "total_steps": 3600,
             }
@@ -146,6 +146,9 @@ def test_build_sustainability_supports_current_metrics_shape():
     sustainability = api_app.build_sustainability(metrics, GreenDCCalculator(region="ES"))
     assert sustainability["energy_savings_percent"] == 20.0
     assert sustainability["optimization_savings_percent"] == 20.0
+    assert sustainability["energy_saved_kwh_sim"] == pytest.approx(0.2)
+    assert sustainability["projected_yearly_savings_eur"] == pytest.approx(245.45)
+    assert sustainability["projected_yearly_co2_kg"] == pytest.approx(322.59)
     assert sustainability["market_data"]["region"] == "ES"
 
 
@@ -183,16 +186,16 @@ def test_build_history_summary_prefers_non_it_overhead_when_available():
 def test_build_sustainability_uses_measured_pue_and_overhead_metrics():
     metrics = {
         "baseline": {
-            "total_power_consumption": 1000.0,
-            "total_it_power_consumption": 800.0,
-            "total_cooling_power_consumption": 200.0,
+            "total_power_consumption": 3_600_000.0,
+            "total_it_power_consumption": 2_880_000.0,
+            "total_cooling_power_consumption": 720_000.0,
             "average_pue": 1.25,
         },
         "models": {
             "scari_safe": {
-                "total_power_consumption": 900.0,
-                "total_it_power_consumption": 820.0,
-                "total_cooling_power_consumption": 80.0,
+                "total_power_consumption": 3_240_000.0,
+                "total_it_power_consumption": 2_952_000.0,
+                "total_cooling_power_consumption": 288_000.0,
                 "average_pue": 1.10,
                 "total_steps": 3600,
             }
@@ -208,6 +211,8 @@ def test_build_sustainability_uses_measured_pue_and_overhead_metrics():
     assert sustainability["pue_optimized"] == 1.1
     assert sustainability["pue_improvement_percent"] == 12.0
     assert sustainability["pue_overhead_reduction_percent"] == 60.0
+    assert sustainability["projected_yearly_savings_eur"] == pytest.approx(122.72)
+    assert sustainability["projected_yearly_co2_kg"] == pytest.approx(161.29)
 
 
 def test_build_evaluation_context_exposes_model_config_mode_baseline_seed_and_steps():

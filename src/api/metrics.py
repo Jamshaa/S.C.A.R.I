@@ -102,9 +102,11 @@ def build_sustainability(metrics: Dict[str, Any], calculator: GreenDCCalculator)
     _, primary = extract_primary_model(metrics)
     summary = calculate_efficiency_summary(baseline, primary)
     total_steps = int(primary.get("total_steps", 5000))
+    baseline_avg_power = float(summary["baseline_power_w"]) / max(total_steps, 1)
+    primary_avg_power = float(summary["primary_power_w"]) / max(total_steps, 1)
     sustainability = calculator.calculate_impact(
-        baseline_power_w=float(summary["baseline_power_w"]),
-        scari_power_w=float(summary["primary_power_w"]),
+        baseline_power_w=baseline_avg_power,
+        scari_power_w=primary_avg_power,
         simulation_steps=total_steps,
     )
     if float(summary["baseline_pue"]) > 0:
