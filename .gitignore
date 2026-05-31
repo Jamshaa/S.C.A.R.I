@@ -25,6 +25,7 @@ htmlcov/
 venv/
 ENV/
 env/
+.venv/
 
 # OS
 .DS_Store
@@ -41,9 +42,11 @@ logs/*
 data/models/*.zip
 data/models/*.pkl
 data/models/config.json
+data/models/*.metadata.json
+!data/models/aire.metadata.json
+configs/scenario_*.yaml
 data/results/*
-outputs/eval/*
-!outputs/eval/.gitkeep
+outputs/
 .pytest_cache/
 pytest-cache-files-*
 tmp/

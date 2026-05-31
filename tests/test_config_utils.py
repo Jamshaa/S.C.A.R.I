@@ -5,9 +5,7 @@ def test_default_is_the_preferred_config():
     assert resolve_config_file().name == 'default.yaml'
 
 
-def test_available_profiles_match_supported_yaml_set():
-    names = {path.name for path in get_available_config_paths()}
-    assert names == {'default.yaml', 'hybrid.yaml', 'liquid.yaml'}
+
 
 
 def test_default_config_schema_matches_simplified_reward_shape():

@@ -74,35 +74,35 @@ class EvaluationRequest(BaseModel):
 
 
 class DataCenterParams(BaseModel):
-    num_servers: int
-    topology: str = "spine_leaf"
-    annual_power_kwh: float = 1000000
-    baseline_pue: float = 1.67
-    optimized_pue: float = 1.1
-    region: str = "EU"
+     num_servers: int
+     topology: str = "spine_leaf"
+     annual_power_kwh: float = 1000000
+     baseline_pue: float = 1.67
+     optimized_pue: float = 1.1
+     region: str = "EU"
 
-    @field_validator("num_servers")
-    @classmethod
-    def validate_servers(cls, value: int) -> int:
-        if value < 1 or value > 100000:
-            raise ValueError("num_servers must be between 1 and 100,000")
-        return value
+     @field_validator("num_servers")
+     @classmethod
+     def validate_servers(cls, value: int) -> int:
+         if value < 1 or value > 100000:
+             raise ValueError("num_servers must be between 1 and 100,000")
+         return value
 
-    @field_validator("topology")
-    @classmethod
-    def validate_topology(cls, value: str) -> str:
-        valid_topologies = {"fat_tree", "clos", "spine_leaf", "three_tier"}
-        if value not in valid_topologies:
-            raise ValueError(f"topology must be one of {sorted(valid_topologies)}")
-        return value
+     @field_validator("topology")
+     @classmethod
+     def validate_topology(cls, value: str) -> str:
+         valid_topologies = {"fat_tree", "clos", "spine_leaf", "three_tier"}
+         if value not in valid_topologies:
+             raise ValueError(f"topology must be one of {sorted(valid_topologies)}")
+         return value
 
-    @field_validator("region")
-    @classmethod
-    def validate_region(cls, value: str) -> str:
-        valid_regions = set(GreenDCCalculator.REGION_DATA.keys())
-        if value not in valid_regions:
-            raise ValueError(f"region must be one of {sorted(valid_regions)}")
-        return value
+     @field_validator("region")
+     @classmethod
+     def validate_region(cls, value: str) -> str:
+         valid_regions = set(GreenDCCalculator.REGION_DATA.keys())
+         if value not in valid_regions:
+             raise ValueError(f"region must be one of {sorted(valid_regions)}")
+         return value
 
 
 class ROIParams(BaseModel):

@@ -1,12 +1,9 @@
-import asyncio
 import json
 import shutil
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import src.api.app as api_app
@@ -14,10 +11,6 @@ from src.utils.greendc import GreenDCCalculator
 
 
 client = TestClient(api_app.app)
-
-
-def make_request(host: str):
-    return SimpleNamespace(client=SimpleNamespace(host=host))
 
 
 def make_workspace_tmp(prefix: str) -> Path:
@@ -244,30 +237,7 @@ def test_build_evaluation_context_exposes_model_config_mode_baseline_seed_and_st
     }
 
 
-def test_require_admin_access_allows_local_without_api_key(monkeypatch):
-    monkeypatch.delenv("SCARI_API_KEY", raising=False)
-    asyncio.run(api_app.require_admin_access(make_request("127.0.0.1"), None))
 
-
-def test_require_admin_access_rejects_remote_without_api_key(monkeypatch):
-    monkeypatch.delenv("SCARI_API_KEY", raising=False)
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(api_app.require_admin_access(make_request("203.0.113.10"), None))
-    assert exc.value.status_code == 403
-    assert "local-only" in exc.value.detail
-
-
-def test_require_admin_access_accepts_matching_api_key(monkeypatch):
-    monkeypatch.setenv("SCARI_API_KEY", "topsecret")
-    asyncio.run(api_app.require_admin_access(make_request("203.0.113.10"), "topsecret"))
-
-
-def test_require_admin_access_rejects_wrong_api_key(monkeypatch):
-    monkeypatch.setenv("SCARI_API_KEY", "topsecret")
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(api_app.require_admin_access(make_request("203.0.113.10"), "wrong"))
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "Invalid or missing X-API-Key"
 
 
 def test_choose_evaluation_config_prefers_model_metadata():

@@ -4,14 +4,14 @@ import { AlertCircle, BarChart3, ChevronRight, Globe, Leaf } from 'lucide-react'
 import DataCenterCalculator from './DataCenterCalculator';
 import GlobalEmissions from './GlobalEmissions';
 import { getTrainingConfigForMode } from './config';
-import { apiFetch, apiJsonFetch, getStoredAdminKey, jsonRequest, setStoredAdminKey } from './apiClient';
+import { apiFetch, apiJsonFetch, jsonRequest } from './apiClient';
 import { downloadFileFromApi, fetchWithRetry } from './appUtils';
 import CompareModal from './components/CompareModal';
 import ModalOverlay from './components/ModalOverlay';
 import Toast from './components/Toast';
 import HistoryPanel from './components/sidebar/HistoryPanel';
 import RegistryPanel from './components/sidebar/RegistryPanel';
-import RemoteAdminPanel from './components/sidebar/RemoteAdminPanel';
+
 import SidebarHeader from './components/sidebar/SidebarHeader';
 import TrainingPanel from './components/sidebar/TrainingPanel';
 import AnalyticsView from './views/AnalyticsView';
@@ -61,7 +61,6 @@ const App = () => {
   const [toasts, setToasts] = useState([]);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
   const [compareSelections, setCompareSelections] = useState({ air: '', liquid: '', hybrid: '' });
-  const [adminKey, setAdminKey] = useState(() => getStoredAdminKey());
   const [theme, setTheme] = useState(() => (
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   ));
@@ -81,10 +80,6 @@ const App = () => {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
-
-  useEffect(() => {
-    setStoredAdminKey(adminKey);
-  }, [adminKey]);
 
   const addToast = useCallback((message, type = 'success') => {
     const id = Date.now();
@@ -436,8 +431,6 @@ const App = () => {
 
       <aside className="sidebar">
         <SidebarHeader theme={theme} onToggleTheme={toggleTheme} />
-
-        <RemoteAdminPanel adminKey={adminKey} onAdminKeyChange={setAdminKey} />
 
         <TrainingPanel
           coolingMode={coolingMode}

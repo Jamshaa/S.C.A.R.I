@@ -2,11 +2,8 @@ import json
 import logging
 import os
 import re
-import secrets
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-from fastapi import Header, HTTPException, Request
 
 from src.utils.greendc import GreenDCCalculator
 from src.utils.model_registry import (
@@ -17,8 +14,6 @@ from src.utils.model_registry import (
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CONFIGS_DIR = (BASE_DIR / "configs").resolve()
-
-LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 MODEL_NAME_PATTERN = re.compile(r"[^A-Za-z0-9._ -]+")
 
 CURRENCY_SYMBOLS = {
@@ -66,10 +61,6 @@ def load_cors_origins() -> List[str]:
     except json.JSONDecodeError:
         origins = [item.strip() for item in raw.split(",")]
     return [origin.rstrip("/") for origin in origins if origin]
-
-
-def is_local_client(host: str) -> bool:
-    return host in LOCAL_CLIENT_HOSTS or host.startswith("127.")
 
 
 def normalize_output_name(value: str) -> str:
@@ -121,48 +112,6 @@ def choose_evaluation_config(requested_config: str, model_names: List[str]) -> s
     return str(inferred_config)
 
 
-def build_region_catalog() -> List[Dict[str, Any]]:
-    regions: List[Dict[str, Any]] = []
-    for code in sorted(GreenDCCalculator.REGION_DATA.keys()):
-        region_data = GreenDCCalculator.REGION_DATA[code]
-        currency_code = region_data["currency"]
-        regions.append(
-            {
-                "code": code,
-                "label": REGION_LABELS.get(code, code),
-                "price_per_kwh": region_data["price"],
-                "carbon_intensity_kg_kwh": region_data["intensity"],
-                "currency_code": currency_code,
-                "currency_symbol": {"EUR": "€", "GBP": "£", "USD": "$"}.get(
-                    currency_code,
-                    CURRENCY_SYMBOLS.get(currency_code, currency_code),
-                ),
-            }
-        )
-    return regions
-
-
-def get_api_key() -> str:
-    return os.getenv("SCARI_API_KEY", "").strip()
-
-
-async def require_admin_access(
-    request: Request,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-) -> None:
-    configured_key = get_api_key()
-    client_host = request.client.host if request.client else ""
-    if configured_key:
-        if not x_api_key or not secrets.compare_digest(x_api_key, configured_key):
-            raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
-        return
-    if not is_local_client(client_host):
-        raise HTTPException(
-            status_code=403,
-            detail="Protected endpoints are local-only unless SCARI_API_KEY is configured",
-        )
-
-
 class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_obj = {
@@ -183,3 +132,25 @@ def create_api_logger() -> logging.Logger:
     logger.setLevel(logging.INFO)
     logger.propagate = False
     return logger
+
+
+def build_region_catalog() -> List[Dict[str, Any]]:
+    regions: List[Dict[str, Any]] = []
+    for code in sorted(GreenDCCalculator.REGION_DATA.keys()):
+        region_data = GreenDCCalculator.REGION_DATA[code]
+        currency_code = region_data["currency"]
+        regions.append(
+            {
+                "code": code,
+                "label": REGION_LABELS.get(code, code),
+                "price_per_kwh": region_data["price"],
+                "carbon_intensity_kg_kwh": region_data["intensity"],
+                "currency_code": currency_code,
+                "currency_symbol": {"EUR": "€", "GBP": "£", "USD": "$"}.get(
+                    currency_code,
+                    CURRENCY_SYMBOLS.get(currency_code, currency_code),
+                ),
+            }
+        )
+    return regions
+

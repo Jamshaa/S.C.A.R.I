@@ -80,11 +80,3 @@ class DecisionExplainer:
         overall_confidence = (temp_confidence + action_confidence) / 2.0
         return float(np.clip(overall_confidence, 0.5, 0.99))
 
-    def get_recent_decisions(self, n: int=10) -> List[Dict]:
-        return list(self.decision_history)[-n:]
-
-    def get_decision_summary(self) -> Dict:
-        if not self.decision_history:
-            return {}
-        recent = list(self.decision_history)[-20:]
-        return {'avg_confidence': float(np.mean([d['confidence'] for d in recent])), 'avg_temp': float(np.mean([d['avg_temp'] for d in recent])), 'avg_cooling': float(np.mean([d['avg_action'] for d in recent])), 'max_temp_seen': float(max([d['max_temp'] for d in recent])), 'total_decisions': len(self.decision_history)}

@@ -85,7 +85,7 @@ def build_model_metadata(
     resolved_config = resolve_config_file(config_path)
     return {
         "config_path": _project_label(resolved_config),
-        "resolved_config": str(resolved_config),
+        "resolved_config": _project_label(resolved_config),
         "cooling_mode": _normalize_mode(cooling_mode),
         "seed": int(seed),
         "timesteps": int(timesteps),

@@ -9,6 +9,7 @@ class TrainingStatus:
     current_step = 0
     total_steps = 0
     last_log = ""
+    stop_requested = False
 
 
 class EvaluationStatus:
@@ -16,6 +17,7 @@ class EvaluationStatus:
     last_log = ""
     error = ""
     result = None
+    stop_requested = False
 
 
 status = TrainingStatus()

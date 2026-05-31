@@ -23,7 +23,9 @@ def run_train_task(params: Any, *, base_dir: Path, status: Any, logger: Any) -> 
     status.progress = 0
     status.current_step = 0
     status.total_steps = params.timesteps
+    status.stop_requested = False
     logger.info("Starting training task: %s for %s steps", params.name, params.timesteps)
+    process = None
     try:
         cmd = [
             get_python_executable(base_dir),
@@ -70,12 +72,30 @@ def run_train_task(params: Any, *, base_dir: Path, status: Any, logger: Any) -> 
             try:
                 line = output_queue.get(timeout=1)
             except queue.Empty:
+                if status.stop_requested:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    status.last_log = "Training stopped by user request."
+                    break
                 if process.poll() is not None:
                     break
                 continue
             if line is None:
                 break
             status.last_log = line.strip()
+            if status.stop_requested:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                status.last_log = "Training stopped by user request."
+                break
             if "Training complete" in line:
                 status.progress = 100
             if "total_timesteps" in line:
@@ -88,10 +108,10 @@ def run_train_task(params: Any, *, base_dir: Path, status: Any, logger: Any) -> 
                 except ValueError:
                     logger.debug("Could not parse training progress from log line: %s", line.strip())
         process.wait()
-        if process.returncode == 0:
+        if process.returncode == 0 and not status.stop_requested:
             status.progress = 100
             status.last_log = "Training completed successfully."
-        else:
+        elif not status.stop_requested:
             status.last_log = f"Training failed with exit code {process.returncode}"
     except Exception as exc:
         status.last_log = f"Error: {exc}"
@@ -112,6 +132,8 @@ def run_eval_task(
     eval_status.is_evaluating = True
     eval_status.error = ""
     eval_status.result = None
+    eval_status.stop_requested = False
+    process = None
     cmd = [
         get_python_executable(base_dir),
         "-m",
@@ -140,8 +162,18 @@ def run_eval_task(
         if process.stdout is not None:
             for line in process.stdout:
                 eval_status.last_log = line.strip()
-        process.wait()
-        if process.returncode == 0:
+                if eval_status.stop_requested:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    eval_status.last_log = "Evaluation stopped by user request."
+                    break
+        if eval_status.stop_requested:
+            eval_status.error = "Stopped by user."
+        elif process.returncode == 0:
             metrics_path = output_dir / "metrics.json"
             if metrics_path.exists():
                 with metrics_path.open("r", encoding="utf-8") as handle:

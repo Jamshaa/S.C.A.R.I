@@ -1,5 +1,5 @@
 import pytest
-from src.utils.greendc import GreenDCCalculator, DataCenterSize, NetworkTopology, HardwareComponent
+from src.utils.greendc import GreenDCCalculator, HardwareComponent
 
 class TestGreenDCCalculator:
 

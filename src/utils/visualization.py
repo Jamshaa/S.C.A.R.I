@@ -312,5 +312,4 @@ class PerformanceVisualizer:
             ),
         )
 
-    def create_power_breakdown_chart(self, baseline_data, model_data_dict) -> None:
-        pass
+

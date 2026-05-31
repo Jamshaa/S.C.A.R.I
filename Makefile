@@ -145,7 +145,7 @@ train:
 	@echo "🧠 Training thermal-safe model..."
 	python -m src.train \
 		--timesteps 600000 \
-		--config configs/optimized.yaml \
+		--config configs/default.yaml \
 		--name scari_thermal_safe_v2
 
 ## Training with custom parameters
